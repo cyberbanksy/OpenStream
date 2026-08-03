@@ -56,12 +56,14 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        hideSystemUi();
         mediaCapabilities = HdrCapabilityProbe.inspect(this);
         xrRuntime = XrRuntimeProbe.inspect(this);
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(5, 6, 6));
         setContentView(root);
+        // After setContentView: the window has no DecorView before content is
+        // installed, and getInsetsController() NPEs on Android 14.
+        hideSystemUi();
         showBrowseScreen();
     }
 
