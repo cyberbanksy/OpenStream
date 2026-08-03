@@ -45,8 +45,6 @@ export function useSpatialNavigation() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      if (target.matches("input, textarea, select") || target.isContentEditable) return;
-
       const directionByKey: Record<string, Direction | undefined> = {
         ArrowLeft: "left",
         ArrowRight: "right",
@@ -55,6 +53,11 @@ export function useSpatialNavigation() {
       };
       const direction = directionByKey[event.key];
       if (!direction) return;
+
+      // Text fields keep left/right for the caret; up/down still move focus so
+      // a remote or keyboard can always leave the field.
+      const editsText = target.matches("input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, select") || target.isContentEditable;
+      if (editsText && (direction === "left" || direction === "right")) return;
 
       const focusScope = document.querySelector<HTMLElement>("[role='dialog'][aria-modal='true']") ?? document;
       const focusables = [...focusScope.querySelectorAll<HTMLElement>("[data-focusable]:not([disabled])")]

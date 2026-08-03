@@ -19,6 +19,7 @@ import lastSignalCityHero from "../../assets/last-signal-city-hero.png";
 import lastSignalCityBackdrop from "../../assets/last-signal-city-hero-v2.png";
 import northstarHero from "../../assets/northstar-hero.png";
 import profileAvatar from "../../assets/profile-avatar.png";
+import { Artwork } from "../../components/Artwork";
 import { Brand } from "../../components/Brand";
 import {
   dynamicRangeLabel,
@@ -84,6 +85,9 @@ function HeroArtwork({ item }: { item: MediaItem }) {
   if (item.id === "northstar") {
     return <div className="cinema-hero-art" style={{ backgroundImage: `url(${northstarHero})` }} />;
   }
+  if (!focusArtwork[item.id]) {
+    return <div key={item.id} className="cinema-hero-art cinema-hero-card"><Artwork cell={item.artworkCell} className="cinema-hero-sprite" /></div>;
+  }
   return <div key={item.id} className="cinema-hero-art cinema-hero-card" style={{ backgroundImage: `url(${focusArtwork[item.id]})` }} />;
 }
 
@@ -118,8 +122,10 @@ function FocusCard({
     >
       {active && item.id === "last-signal" ? (
         <span className="focus-card-art generated" style={{ backgroundImage: `url(${lastSignalCityHero})` }} />
-      ) : (
+      ) : focusArtwork[item.id] ? (
         <img className="focus-card-art" src={focusArtwork[item.id]} alt="" />
+      ) : (
+        <span className="focus-card-art"><Artwork cell={item.artworkCell} className="focus-card-sprite" /></span>
       )}
       <span className="focus-card-shade" />
       {active ? (
@@ -143,14 +149,31 @@ function FocusCard({
 }
 
 export function DiscoverScreen() {
-  const { catalog, beginPlayback, navigate, notify } = useApp();
-  const featured = useMemo(
-    () => featuredIds.map((id) => catalog.find((item) => item.id === id)).filter((item): item is MediaItem => Boolean(item)),
-    [catalog],
-  );
+  const { catalog, beginPlayback, navigate, notify, kidsMode } = useApp();
+  const featured = useMemo(() => {
+    const preferred = featuredIds
+      .map((id) => catalog.find((item) => item.id === id))
+      .filter((item): item is MediaItem => Boolean(item));
+    const fillers = catalog.filter((item) => !preferred.includes(item));
+    return [...preferred, ...fillers].slice(0, 6);
+  }, [catalog]);
   const initialIndex = Math.max(0, featured.findIndex((item) => item.id === "last-signal"));
   const [activeIndex, setActiveIndex] = useState(initialIndex);
-  const selected = featured[activeIndex] ?? featured[0];
+  const selected = featured[Math.min(activeIndex, featured.length - 1)] ?? featured[0];
+
+  if (!selected) {
+    return (
+      <main className="screen discover-screen cinema-discover">
+        <div className="cinema-hero-treatment" />
+        <section className="cinema-empty">
+          <Brand />
+          <h1>Nothing to show yet</h1>
+          <p>No titles match this device's content settings. Add age-appropriate media to a connected library to fill Discover.</p>
+        </section>
+      </main>
+    );
+  }
+
   const candidate = selected.candidates[0];
   const audio = spatialAudioLabel(candidate);
   const hasLeadingArticle = selected.title.toLowerCase().startsWith("the ");
@@ -168,6 +191,7 @@ export function DiscoverScreen() {
       >
         <Brand />
       </button>
+      {kidsMode ? <span className="kids-badge discover-kids" title="Kids Mode is permanently on">Kids</span> : null}
 
       <section className="cinema-title" aria-live="polite" aria-labelledby="cinema-featured-title">
         <span className="cinema-kicker">{hasLeadingArticle ? "THE" : selected.kind === "series" ? "SERIES" : "FEATURE"}</span>
@@ -222,10 +246,12 @@ export function DiscoverScreen() {
           <span className="context-icon"><Clock3 size={24} /></span>
           <span><strong>Continue Watching</strong><small>{featured.length} items</small></span>
         </button>
-        <button data-focusable onClick={() => navigate("connections")}>
-          <span className="context-icon"><HardDrive size={24} /></span>
-          <span><strong>From Atlas NAS</strong><small>1.2 TB available</small></span>
-        </button>
+        {kidsMode ? null : (
+          <button data-focusable onClick={() => navigate("connections")}>
+            <span className="context-icon"><HardDrive size={24} /></span>
+            <span><strong>From Atlas NAS</strong><small>1.2 TB available</small></span>
+          </button>
+        )}
         <button data-focusable onClick={() => navigate("discover")}>
           <span className="context-icon"><Compass size={24} /></span>
           <span><strong>Discover</strong><small>Movies, shows &amp; more</small></span>

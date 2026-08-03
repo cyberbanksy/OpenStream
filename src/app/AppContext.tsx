@@ -11,10 +11,18 @@ import {
 import { catalog, catalogById } from "../data/catalog";
 import { initialConnections } from "../data/connections";
 import { platformCapabilityHints, rankCandidates, type PlaybackCapabilities } from "../domain/capabilities";
+import {
+  type ContentPolicy,
+  filterCatalog,
+  isItemAllowed,
+  type KidsPolicy,
+  standardPolicy,
+} from "../domain/contentPolicy";
 import { inferPlatform, probeBrowserCapabilities } from "../domain/platform";
 import type { MediaItem } from "../domain/media";
 import type { ConnectionSummary } from "../integrations/connection";
 import { listGatewayConnections } from "../integrations/gateway";
+import { completeStandardOnboarding, enableKidsMode, loadActivePolicy } from "./appProfile";
 import type { PlaybackSession, ToastMessage, ViewId } from "./types";
 
 type AppContextValue = {
@@ -22,6 +30,9 @@ type AppContextValue = {
   previousView: ViewId;
   selectedItem: MediaItem;
   catalog: MediaItem[];
+  policy?: ContentPolicy;
+  kidsMode: boolean;
+  completeOnboarding: (mode: "standard" | "kids", kidsPolicy?: KidsPolicy) => void;
   capabilities: PlaybackCapabilities;
   playback?: PlaybackSession;
   connections: ConnectionSummary[];
@@ -63,8 +74,11 @@ function readRoute() {
   };
 }
 
+const kidsHiddenViews: ViewId[] = ["connections", "activity"];
+
 export function AppProvider({ children }: PropsWithChildren) {
   const initial = useMemo(readRoute, []);
+  const [policy, setPolicy] = useState<ContentPolicy | undefined>(() => loadActivePolicy());
   const [view, setView] = useState<ViewId>(initial.view);
   const [previousView, setPreviousView] = useState<ViewId>("discover");
   const [selectedItem, setSelectedItem] = useState<MediaItem>(initial.item);
@@ -76,6 +90,8 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage>();
   const toastId = useRef(0);
+  const kidsMode = policy?.mode === "kids";
+  const visibleCatalog = useMemo(() => filterCatalog(catalog, policy ?? standardPolicy), [policy]);
 
   const updateUrl = useCallback((nextView: ViewId, item?: MediaItem) => {
     const url = new URL(window.location.href);
@@ -85,24 +101,40 @@ export function AppProvider({ children }: PropsWithChildren) {
     window.history.pushState({}, "", url);
   }, []);
 
+  const notify = useCallback((message: Omit<ToastMessage, "id">) => {
+    setToast({ ...message, id: ++toastId.current });
+  }, []);
+
   const navigate = useCallback((next: ViewId) => {
+    if (kidsMode && kidsHiddenViews.includes(next)) {
+      notify({ tone: "neutral", title: "Not available in Kids Mode", detail: "Connections and activity stay hidden on this device." });
+      return;
+    }
     setView((current) => {
       if (current !== next) setPreviousView(current);
       return next;
     });
     updateUrl(next);
-  }, [updateUrl]);
+  }, [kidsMode, notify, updateUrl]);
 
   const openItem = useCallback((item: MediaItem) => {
+    if (!isItemAllowed(item, policy ?? standardPolicy)) {
+      notify({ tone: "warning", title: "Not available in Kids Mode", detail: `${item.title} is outside this device's allowed ratings.` });
+      return;
+    }
     setSelectedItem(item);
     setView((current) => {
       setPreviousView(current);
       return "details";
     });
     updateUrl("details", item);
-  }, [updateUrl]);
+  }, [notify, policy, updateUrl]);
 
   const beginPlayback = useCallback((item = selectedItem) => {
+    if (!isItemAllowed(item, policy ?? standardPolicy)) {
+      notify({ tone: "warning", title: "Not available in Kids Mode", detail: `${item.title} is outside this device's allowed ratings.` });
+      return;
+    }
     const routes = rankCandidates(item.candidates, capabilities);
     const firstPlayable = routes.find((route) => route.playable);
     setSelectedItem(item);
@@ -116,7 +148,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     setPreviousView(view);
     setView("player");
     updateUrl("player", item);
-  }, [capabilities, selectedItem, updateUrl, view]);
+  }, [capabilities, notify, policy, selectedItem, updateUrl, view]);
 
   const selectPlaybackRoute = useCallback((routeId: string) => {
     setPlayback((current) => current ? { ...current, selectedRouteId: routeId, status: "ready" } : current);
@@ -132,9 +164,15 @@ export function AppProvider({ children }: PropsWithChildren) {
     updateUrl(target, target === "details" ? selectedItem : undefined);
   }, [previousView, selectedItem, updateUrl]);
 
-  const notify = useCallback((message: Omit<ToastMessage, "id">) => {
-    setToast({ ...message, id: ++toastId.current });
-  }, []);
+  const completeOnboarding = useCallback((mode: "standard" | "kids", kidsPolicy?: KidsPolicy) => {
+    if (mode === "kids" && kidsPolicy) {
+      setPolicy(enableKidsMode(kidsPolicy));
+      notify({ tone: "success", title: "Kids Mode is on", detail: "Only age-appropriate titles will appear or play on this device." });
+      return;
+    }
+    setPolicy(completeStandardOnboarding());
+    notify({ tone: "success", title: "OpenStream is ready", detail: "The full library is available." });
+  }, [notify]);
 
   const upsertConnection = useCallback((connection: ConnectionSummary) => {
     setConnections((current) => {
@@ -188,6 +226,17 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    if (!kidsMode) return;
+    if (kidsHiddenViews.includes(view)) setView("discover");
+    if (!isItemAllowed(selectedItem, policy ?? standardPolicy)) {
+      const fallback = visibleCatalog[0];
+      if (fallback) setSelectedItem(fallback);
+      setPlayback((current) => current && !isItemAllowed(current.item, policy ?? standardPolicy) ? undefined : current);
+      if (view === "details" || view === "player") setView("discover");
+    }
+  }, [kidsMode, policy, selectedItem, view, visibleCatalog]);
+
+  useEffect(() => {
     const labels: Record<ViewId, string> = {
       discover: "Discover",
       library: "Library",
@@ -212,7 +261,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     view,
     previousView,
     selectedItem,
-    catalog,
+    catalog: visibleCatalog,
+    policy,
+    kidsMode,
+    completeOnboarding,
     capabilities,
     playback,
     connections,
@@ -232,13 +284,16 @@ export function AppProvider({ children }: PropsWithChildren) {
   }), [
     beginPlayback,
     capabilities,
+    completeOnboarding,
     connectionDialogOpen,
     connections,
     goBack,
+    kidsMode,
     navigate,
     notify,
     openItem,
     playback,
+    policy,
     previousView,
     selectPlaybackRoute,
     selectedItem,
@@ -246,6 +301,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     toast,
     upsertConnection,
     view,
+    visibleCatalog,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

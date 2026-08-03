@@ -32,6 +32,7 @@ export function MediaCard({
       <span className="media-visual">
         <Artwork cell={item.artworkCell} />
         <span className="media-gradient" />
+        {item.rating ? <span className="rating-chip">{item.rating}</span> : null}
         <span className="card-play"><Play size={24} fill="currentColor" /></span>
         <span className="media-title-block">
           <strong>{item.title}</strong>

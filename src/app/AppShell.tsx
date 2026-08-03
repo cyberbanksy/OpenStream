@@ -1,4 +1,4 @@
-import { Activity, FolderOpen, Home, Radio, Search, Settings, UserCircle } from "lucide-react";
+import { Activity, Baby, FolderOpen, Home, Radio, Search, Settings, UserCircle } from "lucide-react";
 import { type CSSProperties, useEffect, useState } from "react";
 import { useApp } from "./AppContext";
 import type { ViewId } from "./types";
@@ -12,23 +12,24 @@ import { DiscoverScreen } from "../features/discover/DiscoverScreen";
 import { DetailsScreen } from "../features/library/DetailsScreen";
 import { LibraryScreen } from "../features/library/LibraryScreen";
 import { LiveScreen } from "../features/live/LiveScreen";
+import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
 import { PlayerScreen } from "../features/player/PlayerScreen";
 import { SearchScreen } from "../features/search/SearchScreen";
 import { SettingsScreen } from "../features/settings/SettingsScreen";
 
-const nav: Array<{ id: ViewId; label: string }> = [
+const nav: Array<{ id: ViewId; label: string; kidsHidden?: boolean }> = [
   { id: "discover", label: "Discover" },
   { id: "library", label: "Library" },
   { id: "live", label: "Live" },
-  { id: "connections", label: "Connections" },
+  { id: "connections", label: "Connections", kidsHidden: true },
 ];
 
-const rail = [
-  { id: "discover" as ViewId, label: "Discover", icon: Home },
-  { id: "live" as ViewId, label: "Live", icon: Radio },
-  { id: "library" as ViewId, label: "Library", icon: FolderOpen },
-  { id: "activity" as ViewId, label: "Activity", icon: Activity },
-  { id: "settings" as ViewId, label: "Settings", icon: Settings },
+const rail: Array<{ id: ViewId; label: string; icon: typeof Home; kidsHidden?: boolean }> = [
+  { id: "discover", label: "Discover", icon: Home },
+  { id: "live", label: "Live", icon: Radio },
+  { id: "library", label: "Library", icon: FolderOpen },
+  { id: "activity", label: "Activity", icon: Activity, kidsHidden: true },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 function currentPrimaryView(view: ViewId) {
@@ -37,12 +38,15 @@ function currentPrimaryView(view: ViewId) {
 }
 
 export function AppShell() {
-  const { view, navigate, connectionDialogOpen } = useApp();
+  const { view, navigate, connectionDialogOpen, policy, kidsMode } = useApp();
   const [scale, setScale] = useState(() => Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1));
   useSpatialNavigation();
+  const onboarding = policy === undefined;
   const fullScreen = view === "player" || view === "search";
   const cinematicHome = view === "discover";
   const primaryView = currentPrimaryView(view);
+  const navItems = nav.filter((item) => !kidsMode || !item.kidsHidden);
+  const railItems = rail.filter((item) => !kidsMode || !item.kidsHidden);
 
   useEffect(() => {
     const focusTarget =
@@ -68,17 +72,28 @@ export function AppShell() {
   else if (view === "player") screen = <PlayerScreen />;
   else if (view === "search") screen = <SearchScreen />;
 
+  if (onboarding) {
+    return (
+      <div className="viewport-shell">
+        <div className="app-shell" style={{ "--stage-scale": scale } as CSSProperties}>
+          <OnboardingScreen />
+          <Toast />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="viewport-shell">
       <div className="app-shell" style={{ "--stage-scale": scale } as CSSProperties}>
         {fullScreen || cinematicHome ? null : (
           <>
-            <header className="topbar"><button className="brand-button" data-focusable aria-label="OpenStream home" onClick={() => navigate("discover")}><Brand /></button><nav aria-label="Primary navigation">{nav.map((item) => <button key={item.id} data-focusable className={primaryView === item.id ? "topnav-button selected" : "topnav-button"} onClick={() => navigate(item.id)}>{item.label}</button>)}</nav><div className="top-actions"><button data-focusable aria-label="Search" onClick={() => navigate("search")}><Search size={23} /></button><button data-focusable aria-label="Profile"><UserCircle size={27} /></button></div></header>
-            <aside className="quick-rail" aria-label="Quick navigation">{rail.map(({ id, label, icon: Icon }) => <button key={id} data-focusable className={primaryView === id ? "selected" : ""} aria-label={label} title={label} onClick={() => navigate(id)}><Icon size={21} /></button>)}</aside>
+            <header className="topbar"><button className="brand-button" data-focusable aria-label="OpenStream home" onClick={() => navigate("discover")}><Brand /></button><nav aria-label="Primary navigation">{navItems.map((item) => <button key={item.id} data-focusable className={primaryView === item.id ? "topnav-button selected" : "topnav-button"} onClick={() => navigate(item.id)}>{item.label}</button>)}</nav><div className="top-actions">{kidsMode ? <span className="kids-badge" title="Kids Mode is permanently on"><Baby size={17} />Kids</span> : null}<button data-focusable aria-label="Search" onClick={() => navigate("search")}><Search size={23} /></button><button data-focusable aria-label="Profile"><UserCircle size={27} /></button></div></header>
+            <aside className="quick-rail" aria-label="Quick navigation">{railItems.map(({ id, label, icon: Icon }) => <button key={id} data-focusable className={primaryView === id ? "selected" : ""} aria-label={label} title={label} onClick={() => navigate(id)}><Icon size={21} /></button>)}</aside>
           </>
         )}
         {screen}
-        {connectionDialogOpen ? <ConnectionDialog /> : null}
+        {connectionDialogOpen && !kidsMode ? <ConnectionDialog /> : null}
         <Toast />
       </div>
     </div>

@@ -9,7 +9,7 @@ import { rankCandidates } from "../../domain/capabilities";
 import { ArrRequestDialog } from "./ArrRequestDialog";
 
 export function DetailsScreen() {
-  const { selectedItem: item, catalog, capabilities, beginPlayback } = useApp();
+  const { selectedItem: item, catalog, capabilities, beginPlayback, kidsMode } = useApp();
   const [requestOpen, setRequestOpen] = useState(false);
   const routes = useMemo(() => rankCandidates(item.candidates, capabilities), [capabilities, item.candidates]);
   const best = routes[0];
@@ -26,7 +26,7 @@ export function DetailsScreen() {
         <p>{item.synopsis}</p>
         <div className="hero-actions">
           <button className="action-button primary" data-focusable data-autofocus autoFocus onClick={() => beginPlayback(item)}><Play size={22} fill="currentColor" />Stream</button>
-          <button className="action-button secondary download-action" data-focusable onClick={() => setRequestOpen(true)}><Download size={22} />Download</button>
+          {kidsMode ? null : <button className="action-button secondary download-action" data-focusable onClick={() => setRequestOpen(true)}><Download size={22} />Download</button>}
         </div>
         <div className="media-facts">
           <span><Volume2 size={17} />English · Atmos <b>Spanish · 5.1</b></span>
@@ -46,7 +46,7 @@ export function DetailsScreen() {
         ))}
       </aside>
       <div className="details-related"><MediaRail title="Up Next" items={related} /></div>
-      {requestOpen ? <ArrRequestDialog item={item} onClose={() => setRequestOpen(false)} /> : null}
+      {requestOpen && !kidsMode ? <ArrRequestDialog item={item} onClose={() => setRequestOpen(false)} /> : null}
     </main>
   );
 }
