@@ -1,0 +1,42 @@
+{
+  "openPencilMcpTools": 106,
+  "renderResult": {
+    "id": "0:3",
+    "name": "OpenStream Source Console",
+    "type": "FRAME",
+    "children": [
+      "0:4",
+      "0:20"
+    ]
+  },
+  "bounds": {
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080
+  },
+  "topLevelNodes": 1,
+  "imageExport": {
+    "error": "No visible nodes to export"
+  },
+  "artifacts": {
+    "figPath": "/Volumes/Files/Projects/Code, Apps & Websites/Apps/OpenStream/design/openpencil-lab/openstream-source-console.fig",
+    "previewPath": "/Volumes/Files/Projects/Code, Apps & Websites/Apps/OpenStream/design/openpencil-lab/openstream-source-console.png",
+    "jsxPath": "/Volumes/Files/Projects/Code, Apps & Websites/Apps/OpenStream/design/openpencil-lab/openstream-source-console.jsx"
+  },
+  "savedFileNodeId": "0:4",
+  "cliVerification": {
+    "nodeCount": 108,
+    "nodeTypes": {
+      "FRAME": 55,
+      "TEXT": 44,
+      "ELLIPSE": 9
+    },
+    "preview": {
+      "width": 1920,
+      "height": 1080
+    },
+    "accessibilityFindings": 0,
+    "roundtripMutation": "Roundtrip Verified"
+  }
+}

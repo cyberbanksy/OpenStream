@@ -1,0 +1,680 @@
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import http from "node:http";
+import { fileURLToPath } from "node:url";
+import {
+  authorizeTarget,
+  assertLoopbackBindHost,
+  assertAllowedOrigin,
+  normalizeTarget,
+  parseCanonicalRequestTarget,
+  safeRequestJson,
+  safeStreamRequest,
+} from "./security.mjs";
+
+const host = assertLoopbackBindHost(process.env.OPENSTREAM_GATEWAY_HOST ?? "127.0.0.1");
+const port = Number(process.env.OPENSTREAM_GATEWAY_PORT ?? 8787);
+const urlHost = host.includes(":") ? `[${host}]` : host;
+const allowedOrigins = new Set(
+  (process.env.OPENSTREAM_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const allowedHosts = new Set([`${urlHost}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+const connectionVault = new Map();
+const oauthLaunches = new Map();
+const oauthStates = new Map();
+const streamVault = new Map();
+const mediaVault = new Map();
+const xrHandoffVault = new Map();
+const MAX_ARR_OPTIONS_PER_KIND = 128;
+const MAX_ARR_PROFILE_NAME_LENGTH = 256;
+const MAX_ARR_ROOT_PATH_LENGTH = 2048;
+let rpcId = 0;
+
+class GatewayHttpError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+function createGatewaySession(sessionToken) {
+  if (typeof sessionToken !== "string" || sessionToken.length < 32 || sessionToken.length > 512 || !/^[A-Za-z0-9_-]+$/.test(sessionToken)) {
+    throw new Error("OPENSTREAM_GATEWAY_TOKEN must be a high-entropy base64url token of at least 32 characters.");
+  }
+  const digest = createHash("sha256").update(sessionToken).digest();
+  return { digest, ownerId: digest.toString("base64url") };
+}
+
+function authenticateSession(request, session) {
+  const supplied = typeof request.headers["x-openstream-session"] === "string"
+    ? request.headers["x-openstream-session"]
+    : "";
+  const suppliedDigest = createHash("sha256").update(supplied).digest();
+  if (!timingSafeEqual(suppliedDigest, session.digest)) {
+    throw new GatewayHttpError(401, "The OpenStream gateway session is invalid or expired.");
+  }
+  return session.ownerId;
+}
+
+const connectionNames = {
+  "google-drive": "Google Drive",
+  stremio: "Stremio",
+  sonarr: "Sonarr",
+  radarr: "Radarr",
+  sabnzbd: "SABnzbd",
+  nzbget: "NZBGet",
+};
+
+function securityHeaders(origin) {
+  return {
+    ...(allowedOrigins.has(origin) ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+    "Access-Control-Allow-Headers": "Content-Type, X-OpenStream-Request",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Cache-Control": "no-store",
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+    "Cross-Origin-Resource-Policy": "same-site",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  };
+}
+
+function sendJson(response, status, payload, origin) {
+  response.writeHead(status, { ...securityHeaders(origin), "Content-Type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify(payload));
+}
+
+async function readJson(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 64 * 1024) throw new Error("Request body exceeded the gateway size limit.");
+    chunks.push(chunk);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  return text ? JSON.parse(text) : {};
+}
+
+function requireString(value, label, max = 2048) {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} is required.`);
+  if (value.length > max) throw new Error(`${label} is too long.`);
+  return value.trim();
+}
+
+function optionalString(value, max) {
+  if (typeof value !== "string") return undefined;
+  const result = value.trim();
+  return result ? result.slice(0, max) : undefined;
+}
+
+function pruneVault(vault, maximumEntries) {
+  while (vault.size > maximumEntries) vault.delete(vault.keys().next().value);
+}
+
+async function issueStremioStream(record, value) {
+  try {
+    const candidate = normalizeTarget(value, {
+      allowPrivateNetwork: record.allowPrivateNetwork === true,
+    });
+    const sameServiceOrigin = candidate.origin === record.targetPolicy.approvedOrigin;
+    const authorization = await authorizeTarget(candidate.toString(), sameServiceOrigin
+      ? connectionPolicy(record)
+      : { allowPrivateNetwork: false });
+    const streamId = randomBytes(24).toString("base64url");
+    streamVault.set(streamId, {
+      connectionId: record.id,
+      ownerId: record.ownerId,
+      target: authorization.url.toString(),
+      targetPolicy: authorization.policy,
+      createdAt: Date.now(),
+    });
+    pruneVault(streamVault, 500);
+    return `/gateway/stremio/media?streamId=${encodeURIComponent(streamId)}`;
+  } catch {
+    return undefined;
+  }
+}
+
+async function sanitizeStremioStream(record, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const stream = {
+    name: optionalString(value.name, 256),
+    title: optionalString(value.title, 512),
+    description: optionalString(value.description, 2048),
+  };
+  if (typeof value.url === "string") stream.url = await issueStremioStream(record, value.url);
+  if (typeof value.externalUrl === "string") {
+    try {
+      const externalUrl = new URL(value.externalUrl);
+      if (externalUrl.protocol === "https:" && !externalUrl.username && !externalUrl.password) stream.externalUrl = externalUrl.toString();
+    } catch {
+      // Ignore malformed external links from an untrusted add-on.
+    }
+  }
+  if (typeof value.ytId === "string" && /^[A-Za-z0-9_-]{6,32}$/.test(value.ytId)) stream.ytId = value.ytId;
+  if (typeof value.infoHash === "string" && /^(?:[A-Fa-f0-9]{40}|[A-Za-z2-7]{32})$/.test(value.infoHash)) {
+    stream.infoHash = value.infoHash;
+    if (Number.isInteger(value.fileIdx) && value.fileIdx >= 0 && value.fileIdx <= 1_000_000) stream.fileIdx = value.fileIdx;
+  }
+  return stream.url || stream.externalUrl || stream.ytId || stream.infoHash ? stream : undefined;
+}
+
+function validRange(request) {
+  const range = request.headers.range;
+  if (range && !/^bytes=\d*-\d*$/.test(range)) throw new Error("Media range request is invalid.");
+  if (range === "bytes=-") throw new Error("Media range request is invalid.");
+  return range;
+}
+
+function pipeStream(request, response, upstream, origin) {
+  const headers = securityHeaders(origin);
+  for (const name of ["accept-ranges", "content-length", "content-range", "content-type", "etag", "last-modified"]) {
+    const value = upstream.headers[name];
+    if (typeof value === "string") headers[name] = value;
+  }
+  response.writeHead(upstream.statusCode ?? 200, headers);
+  upstream.pipe(response);
+  request.on("close", () => upstream.destroy());
+}
+
+function connectionPolicy(draft) {
+  return draft.targetPolicy ?? { allowPrivateNetwork: draft.allowPrivateNetwork === true };
+}
+
+function publicConnection(record) {
+  return {
+    id: record.id,
+    kind: record.kind,
+    name: record.name,
+    detail: record.detail,
+    state: record.state,
+    lastChecked: record.lastChecked,
+    capabilities: record.capabilities,
+    managed: true,
+  };
+}
+
+function endpoint(baseUrl, path) {
+  const url = normalizeTarget(baseUrl, { allowPrivateNetwork: true });
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
+  url.search = "";
+  return url.toString();
+}
+
+function buildStremioManifestUrl(value) {
+  const url = normalizeTarget(value, { allowPrivateNetwork: true });
+  if (!url.pathname.endsWith("manifest.json")) url.pathname = `${url.pathname.replace(/\/+$/, "")}/manifest.json`;
+  return url.toString();
+}
+
+async function testConnection(draft, ownerId) {
+  const kind = requireString(draft.kind, "Connection type", 32);
+  if (!Object.hasOwn(connectionNames, kind)) throw new Error("Unsupported connection type.");
+  const id = randomUUID();
+  const record = {
+    id,
+    ownerId,
+    kind,
+    name: connectionNames[kind],
+    detail: "Configuration pending",
+    state: "checking",
+    lastChecked: "just now",
+    capabilities: [],
+    allowPrivateNetwork: draft.allowPrivateNetwork === true,
+  };
+
+  if (kind === "google-drive") {
+    record.clientId = requireString(draft.credential, "Google OAuth client ID", 512);
+    record.appOrigin = requireString(draft.appOrigin, "Application origin", 256);
+    assertAllowedOrigin(record.appOrigin, allowedOrigins);
+    record.state = "attention";
+    record.detail = "Authorization required";
+    record.capabilities = ["drive.file scope", "User-selected files", "Range requests"];
+    connectionVault.set(id, record);
+    const launchToken = randomBytes(32).toString("base64url");
+    oauthLaunches.set(launchToken, { connectionId: id, ownerId, createdAt: Date.now() });
+    return {
+      connection: publicConnection(record),
+      authorizationUrl: `http://${urlHost}:${port}/api/oauth/google/start?launch=${encodeURIComponent(launchToken)}`,
+    };
+  }
+
+  record.baseUrl = requireString(draft.baseUrl, "Server URL");
+  const authorization = await authorizeTarget(record.baseUrl, {
+    allowPrivateNetwork: draft.allowPrivateNetwork === true,
+  });
+  record.baseUrl = authorization.url.toString();
+  record.targetPolicy = authorization.policy;
+  const policy = connectionPolicy(record);
+
+  if (kind === "stremio") {
+    const manifestUrl = buildStremioManifestUrl(record.baseUrl);
+    const manifest = await safeRequestJson(manifestUrl, {}, policy);
+    requireString(manifest?.id, "Stremio manifest ID", 256);
+    record.name = requireString(manifest?.name, "Stremio manifest name", 256);
+    record.detail = `${record.name} - ${requireString(manifest?.version, "Stremio manifest version", 64)}`;
+    record.capabilities = Array.isArray(manifest.resources)
+      ? manifest.resources.map((resource) => typeof resource === "string" ? resource : resource?.name).filter(Boolean).slice(0, 20)
+      : [];
+    record.transportUrl = manifestUrl.replace(/\/manifest\.json$/, "");
+  } else if (kind === "sonarr" || kind === "radarr") {
+    record.apiKey = requireString(draft.credential, "ARR API key", 512);
+    const status = await safeRequestJson(endpoint(record.baseUrl, "/api/v3/system/status"), {
+      headers: { "X-Api-Key": record.apiKey },
+    }, policy);
+    record.detail = `${status.instanceName || status.appName || record.name} - ${requireString(status.version, "ARR version", 64)}`;
+    record.capabilities = kind === "radarr"
+      ? ["Movie lookup", "Quality profiles", "Search handoff"]
+      : ["Series lookup", "Quality profiles", "Episode search"];
+  } else if (kind === "sabnzbd") {
+    record.apiKey = requireString(draft.credential, "SABnzbd API key", 512);
+    const url = new URL(endpoint(record.baseUrl, "/api"));
+    url.searchParams.set("mode", "version");
+    url.searchParams.set("output", "json");
+    url.searchParams.set("apikey", record.apiKey);
+    const status = await safeRequestJson(url.toString(), {}, policy);
+    record.detail = `SABnzbd - ${requireString(status.version, "SABnzbd version", 64)}`;
+    record.capabilities = ["NZB handoff", "Queue", "History"];
+  } else if (kind === "nzbget") {
+    record.username = requireString(draft.username, "NZBGet username", 256);
+    record.password = requireString(draft.credential, "NZBGet password", 1024);
+    const token = Buffer.from(`${record.username}:${record.password}`).toString("base64");
+    const status = await safeRequestJson(endpoint(record.baseUrl, "/jsonrpc"), {
+      method: "POST",
+      headers: { Authorization: `Basic ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "version", params: [] }),
+    }, policy);
+    if (status.error) throw new Error(status.error.message || "NZBGet rejected the request.");
+    record.detail = `NZBGet - ${requireString(status.result, "NZBGet version", 64)}`;
+    record.capabilities = ["NZB handoff", "Queue", "History"];
+  }
+
+  record.state = "connected";
+  connectionVault.set(id, record);
+  return { connection: publicConnection(record) };
+}
+
+function getConnection(id, expectedKinds, ownerId) {
+  const record = connectionVault.get(requireString(id, "Connection ID", 128));
+  if (!record || record.ownerId !== ownerId || !expectedKinds.includes(record.kind)) {
+    throw new Error("The secure connection is not available in this gateway session.");
+  }
+  return record;
+}
+
+async function arrOptions(record) {
+  const policy = connectionPolicy(record);
+  const headers = { "X-Api-Key": record.apiKey };
+  const [profiles, roots] = await Promise.all([
+    safeRequestJson(endpoint(record.baseUrl, "/api/v3/qualityprofile"), { headers }, policy),
+    safeRequestJson(endpoint(record.baseUrl, "/api/v3/rootfolder"), { headers }, policy),
+  ]);
+
+  if (!Array.isArray(profiles) || !Array.isArray(roots)) throw new Error("ARR option responses must be arrays.");
+  if (profiles.length > MAX_ARR_OPTIONS_PER_KIND || roots.length > MAX_ARR_OPTIONS_PER_KIND) {
+    throw new Error(`ARR option responses may contain at most ${MAX_ARR_OPTIONS_PER_KIND} profiles and root folders.`);
+  }
+
+  return {
+    profiles: profiles.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item) || !Number.isInteger(item.id) || item.id < 0) {
+        throw new Error("ARR quality profile metadata is invalid.");
+      }
+      return {
+        id: item.id,
+        name: requireString(item.name, "ARR quality profile name", MAX_ARR_PROFILE_NAME_LENGTH),
+      };
+    }),
+    roots: roots.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new Error("ARR root folder metadata is invalid.");
+      }
+      const root = {
+        path: requireString(item.path, "ARR root folder path", MAX_ARR_ROOT_PATH_LENGTH),
+      };
+      if (item.id != null) {
+        if (!Number.isInteger(item.id) || item.id < 0) throw new Error("ARR root folder ID is invalid.");
+        root.id = item.id;
+      }
+      if (item.freeSpace != null) {
+        if (!Number.isFinite(item.freeSpace) || item.freeSpace < 0) throw new Error("ARR root folder free space is invalid.");
+        root.freeSpace = item.freeSpace;
+      }
+      return root;
+    }),
+  };
+}
+
+async function sendArrRequest(record, request) {
+  const headers = { "X-Api-Key": record.apiKey, "Content-Type": "application/json" };
+  const common = {
+    title: requireString(request.title, "Title", 512),
+    year: Number(request.year),
+    qualityProfileId: Number(request.qualityProfileId),
+    rootFolderPath: requireString(request.rootFolderPath, "Root folder", 2048),
+    monitored: request.monitored !== false,
+  };
+  if (!Number.isInteger(common.year) || !Number.isInteger(common.qualityProfileId)) throw new Error("ARR request metadata is invalid.");
+  const body = record.kind === "radarr"
+    ? { ...common, tmdbId: Number(request.tmdbId) || undefined, imdbId: request.imdbId || undefined, minimumAvailability: "released", addOptions: { searchForMovie: true } }
+    : { ...common, tvdbId: Number(request.tvdbId) || undefined, imdbId: request.imdbId || undefined, seasonFolder: true, addOptions: { searchForMissingEpisodes: true, monitor: "all" } };
+  const path = record.kind === "radarr" ? "/api/v3/movie" : "/api/v3/series";
+  return safeRequestJson(endpoint(record.baseUrl, path), { method: "POST", headers, body: JSON.stringify(body) }, connectionPolicy(record));
+}
+
+async function handoffNzb(record, payload) {
+  const nzbUrl = normalizeTarget(requireString(payload.nzbUrl, "NZB URL"));
+  if (nzbUrl.protocol !== "https:") throw new Error("NZB handoff URLs must use HTTPS.");
+  const category = typeof payload.category === "string" ? payload.category.slice(0, 128) : "";
+  if (record.kind === "sabnzbd") {
+    const url = new URL(endpoint(record.baseUrl, "/api"));
+    url.searchParams.set("mode", "addurl");
+    url.searchParams.set("output", "json");
+    url.searchParams.set("apikey", record.apiKey);
+    url.searchParams.set("name", nzbUrl.toString());
+    if (category) url.searchParams.set("cat", category);
+    return safeRequestJson(url.toString(), {}, connectionPolicy(record));
+  }
+  const token = Buffer.from(`${record.username}:${record.password}`).toString("base64");
+  const result = await safeRequestJson(endpoint(record.baseUrl, "/jsonrpc"), {
+    method: "POST",
+    headers: { Authorization: `Basic ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "append", params: ["", nzbUrl.toString(), category, 0, false, false, "", 0, "SCORE", true, []] }),
+  }, connectionPolicy(record));
+  if (result.error) throw new Error(result.error.message || "NZBGet rejected the handoff.");
+  return result;
+}
+
+function base64Url(bytes) {
+  return Buffer.from(bytes).toString("base64url");
+}
+
+async function beginGoogleOAuth(requestUrl, response) {
+  const launch = oauthLaunches.get(requestUrl.searchParams.get("launch"));
+  if (!launch || Date.now() - launch.createdAt > 10 * 60_000) throw new Error("Google authorization request expired.");
+  oauthLaunches.delete(requestUrl.searchParams.get("launch"));
+  const record = getConnection(launch.connectionId, ["google-drive"], launch.ownerId);
+  const state = base64Url(randomBytes(24));
+  const verifier = base64Url(randomBytes(48));
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  oauthStates.set(state, { connectionId: record.id, ownerId: record.ownerId, verifier, createdAt: Date.now() });
+  const redirectUri = `http://${urlHost}:${port}/api/oauth/google/callback`;
+  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  url.searchParams.set("client_id", record.clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "https://www.googleapis.com/auth/drive.file");
+  url.searchParams.set("code_challenge", challenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("state", state);
+  url.searchParams.set("access_type", "offline");
+  url.searchParams.set("prompt", "consent");
+  response.writeHead(302, { Location: url.toString(), "Cache-Control": "no-store" });
+  response.end();
+}
+
+async function finishGoogleOAuth(requestUrl, response) {
+  const stateValue = requestUrl.searchParams.get("state");
+  const state = oauthStates.get(stateValue);
+  if (!state || Date.now() - state.createdAt > 10 * 60_000) throw new Error("Google OAuth state is invalid or expired.");
+  oauthStates.delete(stateValue);
+  if (requestUrl.searchParams.get("error")) throw new Error("Google authorization was cancelled.");
+  const code = requireString(requestUrl.searchParams.get("code"), "Google authorization code", 4096);
+  const record = getConnection(state.connectionId, ["google-drive"], state.ownerId);
+  const redirectUri = `http://${urlHost}:${port}/api/oauth/google/callback`;
+  const form = new URLSearchParams({
+    client_id: record.clientId,
+    code,
+    code_verifier: state.verifier,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  });
+  const tokens = await safeRequestJson("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
+  record.accessToken = requireString(tokens.access_token, "Google access token", 8192);
+  record.refreshToken = typeof tokens.refresh_token === "string" ? tokens.refresh_token : record.refreshToken;
+  record.expiresAt = Date.now() + Number(tokens.expires_in ?? 3600) * 1000;
+  record.state = "connected";
+  record.detail = "Authorized for user-selected files";
+  const nonce = randomBytes(18).toString("base64url");
+  const payload = JSON.stringify({ type: "openstream-google-connected", connection: publicConnection(record) });
+  const origin = JSON.stringify(record.appOrigin);
+  const html = `<!doctype html><meta charset="utf-8"><title>OpenStream Google Drive</title><p>Google Drive is connected. This window can close.</p><script nonce="${nonce}">window.opener?.postMessage(${payload},${origin});window.close();</script>`;
+  response.writeHead(200, {
+    ...securityHeaders(record.appOrigin),
+    "Content-Security-Policy": `default-src 'none'; style-src 'none'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'`,
+    "Content-Type": "text/html; charset=utf-8",
+  });
+  response.end(html);
+}
+
+async function driveAccessToken(record) {
+  if (record.accessToken && record.expiresAt > Date.now() + 60_000) return record.accessToken;
+  if (!record.refreshToken) throw new Error("Google Drive authorization has expired.");
+  const form = new URLSearchParams({ client_id: record.clientId, refresh_token: record.refreshToken, grant_type: "refresh_token" });
+  const tokens = await safeRequestJson("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
+  record.accessToken = requireString(tokens.access_token, "Google access token", 8192);
+  record.expiresAt = Date.now() + Number(tokens.expires_in ?? 3600) * 1000;
+  return record.accessToken;
+}
+
+function requireGoogleFileId(value) {
+  const fileId = requireString(value, "Google Drive file ID", 256);
+  if (!/^[A-Za-z0-9_-]+$/.test(fileId)) throw new Error("Google Drive file ID is invalid.");
+  return fileId;
+}
+
+function issueGoogleMediaCapability(record, fileId) {
+  const mediaId = randomBytes(24).toString("base64url");
+  mediaVault.set(mediaId, {
+    ownerId: record.ownerId,
+    connectionId: record.id,
+    fileId,
+    createdAt: Date.now(),
+  });
+  pruneVault(mediaVault, 500);
+  return `/gateway/google-drive/media?mediaId=${encodeURIComponent(mediaId)}`;
+}
+
+function normalizeXrMediaSource(value, origin) {
+  const source = requireString(value, "XR media source", 8192);
+  const url = new URL(source, origin);
+  const sameOrigin = url.origin === origin;
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  if (!sameOrigin && url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error("XR media URLs must use HTTPS or a loopback development address.");
+  }
+  if (url.username || url.password) throw new Error("Credentials are not accepted in XR media URLs.");
+  return url.toString();
+}
+
+function issueXrHandoff(payload, ownerId, origin) {
+  if (!origin) throw new Error("XR handoffs require the OpenStream browser origin.");
+  const projection = ["180", "360", "wide"].includes(payload.projection) ? payload.projection : "180";
+  const stereo = ["mono", "sbs", "tb"].includes(payload.stereo) ? payload.stereo : "mono";
+  const dynamicRange = optionalString(payload.dynamicRange, 32)?.replace(/[^a-z0-9+ ._-]/gi, "") || "runtime check";
+  const handoffId = randomBytes(24).toString("base64url");
+  xrHandoffVault.set(handoffId, {
+    ownerId,
+    source: normalizeXrMediaSource(payload.source, origin),
+    projection,
+    stereo,
+    dynamicRange,
+    createdAt: Date.now(),
+  });
+  pruneVault(xrHandoffVault, 250);
+  return `/xr/viewer#handoff=${encodeURIComponent(handoffId)}`;
+}
+
+function redeemXrHandoff(value, ownerId) {
+  const handoffId = requireString(value, "XR handoff ID", 128);
+  if (!/^[A-Za-z0-9_-]+$/.test(handoffId)) throw new Error("XR handoff ID is invalid.");
+  const handoff = xrHandoffVault.get(handoffId);
+  if (!handoff || handoff.ownerId !== ownerId) {
+    throw new Error("The XR handoff is invalid, expired, or already used.");
+  }
+  xrHandoffVault.delete(handoffId);
+  if (Date.now() - handoff.createdAt > 5 * 60_000) throw new Error("The XR handoff is invalid, expired, or already used.");
+  return {
+    source: handoff.source,
+    projection: handoff.projection,
+    stereo: handoff.stereo,
+    dynamicRange: handoff.dynamicRange,
+  };
+}
+
+async function routeRequest(request, response, session) {
+  const origin = request.headers.origin;
+  const requestUrl = parseCanonicalRequestTarget(request.url ?? "/", {
+    origin: `http://${urlHost}:${port}`,
+    prefix: "/api",
+  });
+  if (!requestUrl) throw new GatewayHttpError(404, "Gateway route not found.");
+  if (!allowedHosts.has(request.headers.host)) throw new Error("Invalid gateway host header.");
+  if (request.method === "OPTIONS") {
+    assertAllowedOrigin(origin, allowedOrigins);
+    response.writeHead(204, securityHeaders(origin));
+    response.end();
+    return;
+  }
+  if (requestUrl.pathname === "/api/oauth/google/start" && request.method === "GET") return beginGoogleOAuth(requestUrl, response);
+  if (requestUrl.pathname === "/api/oauth/google/callback" && request.method === "GET") return finishGoogleOAuth(requestUrl, response);
+  const ownerId = authenticateSession(request, session);
+  if (origin) assertAllowedOrigin(origin, allowedOrigins);
+  else if (request.headers["x-openstream-proxy"] !== "loopback") throw new Error("Gateway requests must come from the OpenStream app origin.");
+  if (origin && request.method === "POST" && request.headers["x-openstream-request"] !== "1") {
+    throw new Error("Gateway mutation requests require the OpenStream request header.");
+  }
+
+  if (requestUrl.pathname === "/api/health" && request.method === "GET") {
+    const connections = [...connectionVault.values()].filter((record) => record.ownerId === ownerId).length;
+    return sendJson(response, 200, { ok: true, connections }, origin);
+  }
+  if (requestUrl.pathname === "/api/connections" && request.method === "GET") {
+    const connections = [...connectionVault.values()].filter((record) => record.ownerId === ownerId).map(publicConnection);
+    return sendJson(response, 200, { connections }, origin);
+  }
+  if (requestUrl.pathname === "/api/connections" && request.method === "POST") {
+    return sendJson(response, 200, await testConnection(await readJson(request), ownerId), origin);
+  }
+
+  if (requestUrl.pathname === "/api/arr/options" && request.method === "GET") {
+    const record = getConnection(requestUrl.searchParams.get("connectionId"), ["sonarr", "radarr"], ownerId);
+    return sendJson(response, 200, await arrOptions(record), origin);
+  }
+  if (requestUrl.pathname === "/api/arr/request" && request.method === "POST") {
+    const payload = await readJson(request);
+    const record = getConnection(payload.connectionId, ["sonarr", "radarr"], ownerId);
+    return sendJson(response, 200, { result: await sendArrRequest(record, payload.request ?? {}) }, origin);
+  }
+  if (requestUrl.pathname === "/api/usenet/handoff" && request.method === "POST") {
+    const payload = await readJson(request);
+    const record = getConnection(payload.connectionId, ["sabnzbd", "nzbget"], ownerId);
+    return sendJson(response, 200, { result: await handoffNzb(record, payload) }, origin);
+  }
+  if (requestUrl.pathname === "/api/stremio/streams" && request.method === "POST") {
+    const payload = await readJson(request);
+    const record = getConnection(payload.connectionId, ["stremio"], ownerId);
+    const type = encodeURIComponent(requireString(payload.type, "Stremio type", 128));
+    const id = encodeURIComponent(requireString(payload.id, "Stremio ID", 512));
+    const streams = await safeRequestJson(`${record.transportUrl}/stream/${type}/${id}.json`, {}, connectionPolicy(record));
+    const sanitized = Array.isArray(streams.streams)
+      ? (await Promise.all(streams.streams.slice(0, 100).map((stream) => sanitizeStremioStream(record, stream)))).filter(Boolean)
+      : [];
+    return sendJson(response, 200, { streams: sanitized }, origin);
+  }
+  if (requestUrl.pathname === "/api/stremio/media" && request.method === "GET") {
+    const streamId = requireString(requestUrl.searchParams.get("streamId"), "Stream ID", 128);
+    const stream = streamVault.get(streamId);
+    if (!stream || stream.ownerId !== ownerId) {
+      throw new Error("The Stremio stream route is invalid or expired.");
+    }
+    if (Date.now() - stream.createdAt > 30 * 60_000) {
+      streamVault.delete(streamId);
+      throw new Error("The Stremio stream route is invalid or expired.");
+    }
+    const record = getConnection(stream.connectionId, ["stremio"], ownerId);
+    const range = validRange(request);
+    const upstream = await safeStreamRequest(stream.target, {
+      headers: range ? { Range: range } : undefined,
+    }, stream.targetPolicy);
+    pipeStream(request, response, upstream, origin);
+    return;
+  }
+  if (requestUrl.pathname === "/api/xr/handoffs" && request.method === "POST") {
+    const payload = await readJson(request);
+    return sendJson(response, 201, { viewerUrl: issueXrHandoff(payload, ownerId, origin) }, origin);
+  }
+  if (requestUrl.pathname === "/api/xr/handoffs/redeem" && request.method === "POST") {
+    const payload = await readJson(request);
+    return sendJson(response, 200, redeemXrHandoff(payload.handoffId, ownerId), origin);
+  }
+  if (requestUrl.pathname === "/api/google-drive/files" && request.method === "GET") {
+    const record = getConnection(requestUrl.searchParams.get("connectionId"), ["google-drive"], ownerId);
+    const token = await driveAccessToken(record);
+    const url = new URL("https://www.googleapis.com/drive/v3/files");
+    url.searchParams.set("q", "trashed = false and mimeType contains 'video/'");
+    url.searchParams.set("pageSize", "100");
+    url.searchParams.set("orderBy", "modifiedTime desc");
+    url.searchParams.set("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink,videoMediaMetadata)");
+    const files = await safeRequestJson(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+    return sendJson(response, 200, files, origin);
+  }
+  if (requestUrl.pathname === "/api/google-drive/media-capability" && request.method === "POST") {
+    const payload = await readJson(request);
+    const record = getConnection(payload.connectionId, ["google-drive"], ownerId);
+    return sendJson(response, 201, {
+      mediaUrl: issueGoogleMediaCapability(record, requireGoogleFileId(payload.fileId)),
+    }, origin);
+  }
+  if (requestUrl.pathname === "/api/google-drive/media" && request.method === "GET") {
+    const mediaId = requireString(requestUrl.searchParams.get("mediaId"), "Google Drive media capability", 128);
+    const media = mediaVault.get(mediaId);
+    if (!media || media.ownerId !== ownerId) {
+      throw new Error("The Google Drive media route is invalid or expired.");
+    }
+    if (Date.now() - media.createdAt > 30 * 60_000) {
+      mediaVault.delete(mediaId);
+      throw new Error("The Google Drive media route is invalid or expired.");
+    }
+    const record = getConnection(media.connectionId, ["google-drive"], ownerId);
+    const range = validRange(request);
+    const token = await driveAccessToken(record);
+    const upstream = await safeStreamRequest(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(media.fileId)}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}`, ...(range ? { Range: range } : {}) },
+    });
+    pipeStream(request, response, upstream, origin);
+    return;
+  }
+  sendJson(response, 404, { error: "Gateway route not found." }, origin);
+}
+
+export function createGatewayServer({ sessionToken = process.env.OPENSTREAM_GATEWAY_TOKEN } = {}) {
+  const session = createGatewaySession(sessionToken);
+  return http.createServer((request, response) => {
+    void routeRequest(request, response, session).catch((error) => {
+      const origin = request.headers.origin;
+      const message = error instanceof SyntaxError ? "Request JSON is invalid." : error.message || "Gateway request failed.";
+      const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      sendJson(response, statusCode, { error: message }, origin);
+    });
+  });
+}
+
+const isEntrypoint = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isEntrypoint) {
+  const server = createGatewayServer({ sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN });
+  server.listen(port, host, () => {
+    console.log(`OpenStream secure gateway listening on http://${host}:${port}`);
+  });
+}
