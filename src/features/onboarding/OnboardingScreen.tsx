@@ -44,7 +44,7 @@ export function OnboardingScreen() {
             <button className="onboarding-choice" data-focusable data-autofocus autoFocus onClick={() => completeOnboarding("standard")}>
               <span className="choice-icon"><Users size={34} /></span>
               <strong>Everyone</strong>
-              <span>The full library with every connected source, request handoff, and add-on.</span>
+              <span>The full library with every connected source, request handoff, and add-ons.</span>
             </button>
             <button className="onboarding-choice kids" data-focusable onClick={() => setStep("rating")}>
               <span className="choice-icon"><Baby size={34} /></span>

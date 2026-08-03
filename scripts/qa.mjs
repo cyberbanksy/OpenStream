@@ -30,6 +30,18 @@ await mkdir(outputDir, { recursive: true });
 
 const browser = await chromium.launch({ executablePath, headless: true });
 const page = await browser.newPage({ viewport: { width: 1715, height: 965 } });
+// Screens are audited against a completed standard setup; onboarding has its
+// own dedicated pass below with a clean storage state.
+await page.addInitScript(() => {
+  try {
+    window.localStorage.setItem(
+      "openstream.profile.v1",
+      JSON.stringify({ policy: { mode: "standard" }, onboardedAt: "2026-01-01T00:00:00.000Z" }),
+    );
+  } catch {
+    // Storage may be unavailable in exotic automation contexts.
+  }
+});
 await page.route("**/gateway/connections", (route) => route.fulfill({
   status: 200,
   contentType: "application/json",
@@ -172,6 +184,65 @@ await page.screenshot({
   animations: "disabled",
 });
 
+// Onboarding and Kids Mode pass: fresh storage, full guardian flow, and the
+// fail-closed lock behaviour.
+const kidsPage = await browser.newPage({ viewport: { width: 1715, height: 965 } });
+kidsPage.on("pageerror", (error) => consoleErrors.push(`kids: ${error.message}`));
+await kidsPage.route("**/gateway/connections", (route) => route.fulfill({
+  status: 200,
+  contentType: "application/json",
+  body: JSON.stringify({ connections: [] }),
+}));
+const kidsAudit = { steps: [] };
+await kidsPage.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
+await kidsPage.waitForSelector(".onboarding-screen");
+kidsAudit.onboardingShown = true;
+await kidsPage.evaluate(axe.source);
+kidsAudit.onboardingAxe = await kidsPage.evaluate(async () => {
+  const result = await globalThis.axe.run(document, {
+    runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+  });
+  return result.violations.map((violation) => ({ id: violation.id, targets: violation.nodes.map((node) => node.target.join(" ")) }));
+});
+await kidsPage.screenshot({ path: join(outputDir, "onboarding-desktop.png"), animations: "disabled" });
+
+await kidsPage.locator(".onboarding-choice.kids").click();
+await kidsPage.waitForSelector(".onboarding-choice-grid.caps");
+kidsAudit.steps.push("rating");
+await kidsPage.locator(".onboarding-choice", { hasText: "Teens" }).click();
+await kidsPage.waitForSelector(".blocklist-form");
+kidsAudit.steps.push("blocklist");
+await kidsPage.locator(".blocklist-form input").fill("haunted");
+await kidsPage.locator(".blocklist-form input").press("Enter");
+await kidsPage.locator(".onboarding-actions .action-button").click();
+await kidsPage.waitForSelector(".confirm-warning");
+kidsAudit.steps.push("confirm");
+kidsAudit.confirmWarning = await kidsPage.locator(".confirm-warning").textContent();
+await kidsPage.screenshot({ path: join(outputDir, "onboarding-confirm.png"), animations: "disabled" });
+const enableButton = kidsPage.locator(".onboarding-actions .action-button");
+kidsAudit.enableDisabledBeforeAcknowledge = await enableButton.isDisabled();
+await kidsPage.locator(".confirm-check input").check();
+await enableButton.click();
+await kidsPage.waitForSelector(".cinema-discover");
+kidsAudit.steps.push("enabled");
+await kidsPage.waitForSelector(".discover-kids");
+kidsAudit.kidsBadgeShown = await kidsPage.locator(".discover-kids").isVisible();
+kidsAudit.redlineVisible = (await kidsPage.locator(".focus-card", { hasText: "Redline" }).count()) > 0;
+kidsAudit.lockStored = await kidsPage.evaluate(() => window.localStorage.getItem("openstream.kidsLock.v1") !== null);
+await kidsPage.screenshot({ path: join(outputDir, "discover-kids.png"), animations: "disabled" });
+
+// Tampering with the stored profile must fail closed to a kids policy.
+await kidsPage.evaluate(() => {
+  window.localStorage.setItem(
+    "openstream.profile.v1",
+    JSON.stringify({ policy: { mode: "standard" }, onboardedAt: "2026-01-01T00:00:00.000Z" }),
+  );
+});
+await kidsPage.reload({ waitUntil: "networkidle" });
+await kidsPage.waitForSelector(".cinema-discover");
+kidsAudit.tamperStillKids = await kidsPage.locator(".discover-kids").isVisible();
+await kidsPage.close();
+
 await browser.close();
 
 const failures = [
@@ -187,9 +258,16 @@ const failures = [
   ...(discoverInteraction?.focusedTitle === "Solar Drift" ? [] : ["discover: focus did not activate Solar Drift"]),
   ...(discoverInteraction?.playbackOpened ? [] : ["discover: focused Play action did not open the player"]),
   ...(discoverInteraction?.searchOpened ? [] : ["discover: Search control did not open search"]),
+  ...(kidsAudit.onboardingAxe ?? []).map((violation) => `onboarding: axe ${violation.id}: ${violation.targets.join(", ")}`),
+  ...(kidsAudit.confirmWarning?.includes("cannot be reverted") ? [] : ["kids: confirm step is missing the irreversibility warning"]),
+  ...(kidsAudit.enableDisabledBeforeAcknowledge ? [] : ["kids: enable was clickable before acknowledgement"]),
+  ...(kidsAudit.kidsBadgeShown ? [] : ["kids: badge missing after enabling"]),
+  ...(kidsAudit.redlineVisible === false ? [] : ["kids: R-rated title still visible in kids mode"]),
+  ...(kidsAudit.lockStored ? [] : ["kids: lock was not persisted"]),
+  ...(kidsAudit.tamperStillKids ? [] : ["kids: tampered profile escaped kids mode"]),
 ];
 
-console.log(JSON.stringify({ results, discoverInteraction, xrMobileAccessibility, consoleErrors }, null, 2));
+console.log(JSON.stringify({ results, discoverInteraction, kidsAudit, xrMobileAccessibility, consoleErrors }, null, 2));
 if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exitCode = 1;

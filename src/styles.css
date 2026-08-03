@@ -38,7 +38,8 @@ button:disabled { cursor: not-allowed; opacity: 0.46; }
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  overflow: hidden;
+  /* clip (not hidden) so focus() can never scroll the scaled stage out of frame */
+  overflow: clip;
   background: #020406;
 }
 
@@ -792,7 +793,7 @@ button:disabled { cursor: not-allowed; opacity: 0.46; }
 /* ── Kids Mode & onboarding ─────────────────────────────────────────── */
 
 .kids-badge { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border: 1px solid rgba(245, 184, 75, 0.45); border-radius: 17px; background: rgba(245, 184, 75, 0.14); color: var(--amber); font-size: 14px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
-.discover-kids { position: absolute; z-index: 30; top: 74px; left: 210px; }
+.discover-kids { position: absolute; z-index: 30; top: 76px; left: 452px; }
 
 .rating-chip { position: absolute; z-index: 3; top: 10px; right: 10px; height: 26px; display: inline-flex; align-items: center; padding: 0 9px; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 5px; background: rgba(4, 8, 10, 0.78); color: var(--text-soft); font-size: 12px; font-weight: 800; letter-spacing: 0.05em; backdrop-filter: blur(6px); }
 
@@ -834,7 +835,8 @@ button:disabled { cursor: not-allowed; opacity: 0.46; }
 .confirm-warning { display: flex; align-items: flex-start; gap: 15px; width: min(760px, 100%); padding: 21px 24px; border: 1px solid rgba(245, 184, 75, 0.45); border-left: 4px solid var(--amber); border-radius: 10px; background: rgba(38, 28, 10, 0.6); color: #ffe1ad; text-align: left; }
 .confirm-warning p { margin: 0; font-size: 17px; line-height: 1.55; }
 .confirm-warning svg { flex: none; margin-top: 3px; }
-.confirm-check { justify-content: center; color: var(--text-soft); font-size: 17px; }
+.confirm-check { display: inline-flex; align-items: center; gap: 12px; justify-content: center; color: var(--text-soft); font-size: 17px; }
+.confirm-check input { width: 20px; height: 20px; accent-color: var(--amber); }
 
 .cinema-empty { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 14px; margin: auto; padding-top: 330px; text-align: center; }
 .cinema-empty h1 { margin: 0; font-size: 44px; }
