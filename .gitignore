@@ -4,3 +4,4 @@ logs/
 .DS_Store
 *.local
 test-media/
+native/android-xr/app/src/main/assets/
