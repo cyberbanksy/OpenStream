@@ -5,6 +5,7 @@ import {
   randomSessionToken,
   rewriteGatewayRequestTarget,
 } from "./server/dev-session.mjs";
+import { createLogger } from "./server/logger.mjs";
 import { createGatewayServer } from "./server/openstream-gateway.mjs";
 
 const gatewayHost = "127.0.0.1";
@@ -32,7 +33,9 @@ function secureGatewayPlugin(sessionToken: string, boundary: ReturnType<typeof c
       if (gatewayRuntime.__openStreamDevGateway) {
         await closeGateway(gatewayRuntime.__openStreamDevGateway);
       }
-      const gateway = createGatewayServer({ sessionToken });
+      const gatewayLogger = createLogger({ mirrorToConsole: false });
+      const gateway = createGatewayServer({ sessionToken, logger: gatewayLogger });
+      server.config.logger.info(`OpenStream gateway logs: ${gatewayLogger.directory}`);
       await new Promise<void>((resolve, reject) => {
         gateway.once("error", reject);
         gateway.listen(gatewayPort, gatewayHost, resolve);

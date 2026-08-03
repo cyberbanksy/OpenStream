@@ -157,6 +157,73 @@ export async function googleDriveGatewayMediaUrl(connectionId: string, fileId: s
   return result.mediaUrl;
 }
 
+const transcoderCapabilitiesSchema = z.object({
+  available: z.boolean(),
+  version: z.string().optional(),
+  hardwareAccelerated: z.boolean().optional(),
+  encoders: z.object({
+    h264: z.string().optional(),
+    hevc: z.string().optional(),
+    aac: z.string().optional(),
+  }).optional(),
+});
+
+export type TranscoderCapabilities = z.infer<typeof transcoderCapabilitiesSchema>;
+
+export async function getTranscoderCapabilities() {
+  return transcoderCapabilitiesSchema.parse(await gatewayJson<unknown>("/transcode/capabilities"));
+}
+
+export type TranscodeProfile = {
+  maxWidth: number;
+  maxHeight: number;
+  videoCodec?: "h264" | "hevc";
+};
+
+export async function createTranscodeSession(mediaUrl: string, profile: TranscodeProfile) {
+  const result = await gatewayJson<{ transcodeUrl: string }>("/transcode/sessions", {
+    method: "POST",
+    body: JSON.stringify({ mediaUrl, profile }),
+  });
+  return result.transcodeUrl;
+}
+
+const nasListingSchema = z.object({
+  path: z.string(),
+  directories: z.array(z.object({ name: z.string(), path: z.string() })),
+  files: z.array(z.object({ name: z.string(), path: z.string(), size: z.number().optional() })),
+});
+
+export type NasDirectoryListing = z.infer<typeof nasListingSchema>;
+
+export async function browseNasDirectory(connectionId: string, path = "") {
+  const query = new URLSearchParams({ connectionId, path });
+  return nasListingSchema.parse(await gatewayJson<unknown>(`/nas/browse?${query}`));
+}
+
+export async function createNasMediaCapability(connectionId: string, path: string) {
+  const result = await gatewayJson<{ mediaUrl: string }>("/nas/media-capability", {
+    method: "POST",
+    body: JSON.stringify({ connectionId, path }),
+  });
+  return result.mediaUrl;
+}
+
+export type ClientLogEntry = {
+  level: "info" | "warn" | "error";
+  message: string;
+  context?: Record<string, string>;
+};
+
+/** Fire-and-forget log shipping; failures must never affect the UI. */
+export async function postClientLogs(entries: ClientLogEntry[]) {
+  try {
+    await gatewayJson("/logs", { method: "POST", body: JSON.stringify({ entries }) });
+  } catch {
+    // The gateway may be absent in production builds; logs stay client-side.
+  }
+}
+
 export type XrHandoffDraft = {
   source: string;
   projection: "180" | "360" | "wide";

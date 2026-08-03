@@ -843,3 +843,23 @@ button:disabled { cursor: not-allowed; opacity: 0.46; }
 
 .settings-kids-panel .support-row strong { text-transform: none; }
 .settings-inline-note { display: flex; align-items: center; gap: 9px; margin-top: 13px; color: var(--muted); font-size: 14px; }
+
+/* ── NAS browser & transcode ────────────────────────────────────────── */
+
+.dialog-hint { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.nas-browser { display: flex; flex-direction: column; gap: 13px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+.nas-browser header { display: flex; flex-direction: column; gap: 9px; }
+.nas-path { display: flex; align-items: center; gap: 13px; }
+.nas-path small { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nas-entries { display: flex; flex-direction: column; gap: 5px; max-height: 380px; overflow-y: auto; padding-right: 5px; }
+.nas-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 15px; border: 1px solid transparent; border-radius: 8px; background: rgba(16, 22, 26, 0.66); color: var(--text-soft); cursor: pointer; font-size: 16px; text-align: left; }
+.nas-row:hover, .nas-row:focus-visible { background: var(--surface-hover); border-color: var(--border); }
+.nas-row:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
+.nas-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nas-row small { flex: none; color: var(--muted); font-size: 13px; }
+.nas-row .nas-play { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: rgba(72, 220, 231, 0.14); color: var(--cyan); }
+.nas-row.file { color: var(--text); }
+.nas-note { display: flex; align-items: center; gap: 9px; margin: 5px 0 0; color: var(--muted); font-size: 15px; }
+.spin { animation: nas-spin 900ms linear infinite; }
+@keyframes nas-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

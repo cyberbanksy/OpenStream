@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+import { createLogger } from "./logger.mjs";
+import { listNasDirectory, resolveWithinRoot, streamNasFile, validateNasRoot } from "./nas.mjs";
 import {
   authorizeTarget,
   assertLoopbackBindHost,
@@ -10,6 +12,7 @@ import {
   safeRequestJson,
   safeStreamRequest,
 } from "./security.mjs";
+import { probeTranscoder, startTranscode } from "./transcoder.mjs";
 
 const host = assertLoopbackBindHost(process.env.OPENSTREAM_GATEWAY_HOST ?? "127.0.0.1");
 const port = Number(process.env.OPENSTREAM_GATEWAY_PORT ?? 8787);
@@ -27,6 +30,8 @@ const oauthStates = new Map();
 const streamVault = new Map();
 const mediaVault = new Map();
 const xrHandoffVault = new Map();
+const nasVault = new Map();
+const transcodeVault = new Map();
 const MAX_ARR_OPTIONS_PER_KIND = 128;
 const MAX_ARR_PROFILE_NAME_LENGTH = 256;
 const MAX_ARR_ROOT_PATH_LENGTH = 2048;
@@ -65,6 +70,7 @@ const connectionNames = {
   radarr: "Radarr",
   sabnzbd: "SABnzbd",
   nzbget: "NZBGet",
+  "nas-folder": "NAS folder",
 };
 
 function securityHeaders(origin) {
@@ -240,6 +246,16 @@ async function testConnection(draft, ownerId) {
       connection: publicConnection(record),
       authorizationUrl: `http://${urlHost}:${port}/api/oauth/google/start?launch=${encodeURIComponent(launchToken)}`,
     };
+  }
+
+  if (kind === "nas-folder") {
+    record.rootPath = await validateNasRoot(requireString(draft.baseUrl, "NAS folder path", 4096));
+    record.name = record.rootPath.split("/").filter(Boolean).pop() ?? "NAS folder";
+    record.detail = record.rootPath;
+    record.capabilities = ["Mounted share", "Range requests", "Local transcode"];
+    record.state = "connected";
+    connectionVault.set(id, record);
+    return { connection: publicConnection(record) };
   }
 
   record.baseUrl = requireString(draft.baseUrl, "Server URL");
@@ -486,6 +502,38 @@ function issueGoogleMediaCapability(record, fileId) {
   return `/gateway/google-drive/media?mediaId=${encodeURIComponent(mediaId)}`;
 }
 
+function issueNasMediaCapability(record, filePath) {
+  const mediaId = randomBytes(24).toString("base64url");
+  nasVault.set(mediaId, {
+    ownerId: record.ownerId,
+    connectionId: record.id,
+    filePath,
+    createdAt: Date.now(),
+  });
+  pruneVault(nasVault, 500);
+  return `/gateway/nas/media?mediaId=${encodeURIComponent(mediaId)}`;
+}
+
+function resolveTranscodeInput(mediaUrl, ownerId) {
+  let parsed;
+  try {
+    parsed = new URL(mediaUrl, "http://gateway.invalid");
+  } catch {
+    throw new Error("The transcode source is not a gateway media URL.");
+  }
+  if (parsed.pathname === "/gateway/nas/media" || parsed.pathname === "/api/nas/media") {
+    const media = nasVault.get(parsed.searchParams.get("mediaId") ?? "");
+    if (!media || media.ownerId !== ownerId) throw new Error("The transcode source is invalid or expired.");
+    return { kind: "nas", input: media.filePath };
+  }
+  if (parsed.pathname === "/gateway/stremio/media" || parsed.pathname === "/api/stremio/media") {
+    const stream = streamVault.get(parsed.searchParams.get("streamId") ?? "");
+    if (!stream || stream.ownerId !== ownerId) throw new Error("The transcode source is invalid or expired.");
+    return { kind: "stremio", input: stream.target };
+  }
+  throw new Error("Only NAS and Stremio gateway media can be transcoded locally.");
+}
+
 function normalizeXrMediaSource(value, origin) {
   const source = requireString(value, "XR media source", 8192);
   const url = new URL(source, origin);
@@ -533,7 +581,7 @@ function redeemXrHandoff(value, ownerId) {
   };
 }
 
-async function routeRequest(request, response, session) {
+async function routeRequest(request, response, session, logger) {
   const origin = request.headers.origin;
   const requestUrl = parseCanonicalRequestTarget(request.url ?? "/", {
     origin: `http://${urlHost}:${port}`,
@@ -656,16 +704,109 @@ async function routeRequest(request, response, session) {
     pipeStream(request, response, upstream, origin);
     return;
   }
+  if (requestUrl.pathname === "/api/nas/browse" && request.method === "GET") {
+    const record = getConnection(requestUrl.searchParams.get("connectionId"), ["nas-folder"], ownerId);
+    return sendJson(response, 200, await listNasDirectory(record.rootPath, requestUrl.searchParams.get("path") ?? ""), origin);
+  }
+  if (requestUrl.pathname === "/api/nas/media-capability" && request.method === "POST") {
+    const payload = await readJson(request);
+    const record = getConnection(payload.connectionId, ["nas-folder"], ownerId);
+    const filePath = await resolveWithinRoot(record.rootPath, requireString(payload.path, "NAS media path", 4096));
+    return sendJson(response, 201, { mediaUrl: issueNasMediaCapability(record, filePath) }, origin);
+  }
+  if (requestUrl.pathname === "/api/nas/media" && request.method === "GET") {
+    const mediaId = requireString(requestUrl.searchParams.get("mediaId"), "NAS media capability", 128);
+    const media = nasVault.get(mediaId);
+    if (!media || media.ownerId !== ownerId) throw new Error("The NAS media route is invalid or expired.");
+    if (Date.now() - media.createdAt > 12 * 60 * 60_000) {
+      nasVault.delete(mediaId);
+      throw new Error("The NAS media route is invalid or expired.");
+    }
+    getConnection(media.connectionId, ["nas-folder"], ownerId);
+    await streamNasFile(request, response, media.filePath, securityHeaders(origin));
+    return;
+  }
+  if (requestUrl.pathname === "/api/transcode/capabilities" && request.method === "GET") {
+    return sendJson(response, 200, await probeTranscoder(), origin);
+  }
+  if (requestUrl.pathname === "/api/transcode/sessions" && request.method === "POST") {
+    const payload = await readJson(request);
+    const probe = await probeTranscoder();
+    if (!probe.available) throw new Error("Local transcoding is unavailable: ffmpeg was not found on this machine.");
+    const resolved = resolveTranscodeInput(requireString(payload.mediaUrl, "Media URL", 4096), ownerId);
+    const transcodeId = randomBytes(24).toString("base64url");
+    transcodeVault.set(transcodeId, {
+      ownerId,
+      input: resolved.input,
+      inputKind: resolved.kind,
+      profile: payload.profile && typeof payload.profile === "object" ? payload.profile : {},
+      createdAt: Date.now(),
+    });
+    pruneVault(transcodeVault, 100);
+    void logger?.info("transcode", `session created for a ${resolved.kind} source`);
+    return sendJson(response, 201, { transcodeUrl: `/gateway/transcode/media?transcodeId=${encodeURIComponent(transcodeId)}` }, origin);
+  }
+  if (requestUrl.pathname === "/api/transcode/media" && request.method === "GET") {
+    const transcodeId = requireString(requestUrl.searchParams.get("transcodeId"), "Transcode session", 128);
+    const sessionRecord = transcodeVault.get(transcodeId);
+    if (!sessionRecord || sessionRecord.ownerId !== ownerId) throw new Error("The transcode session is invalid or expired.");
+    if (Date.now() - sessionRecord.createdAt > 12 * 60 * 60_000) {
+      transcodeVault.delete(transcodeId);
+      throw new Error("The transcode session is invalid or expired.");
+    }
+    const probe = await probeTranscoder();
+    if (!probe.available) throw new Error("Local transcoding is unavailable: ffmpeg was not found on this machine.");
+    const { child, plan } = startTranscode({ input: sessionRecord.input, profile: sessionRecord.profile, encoders: probe.encoders });
+    response.writeHead(200, { ...securityHeaders(origin), "Content-Type": "video/mp4", "Cache-Control": "no-store" });
+    let stderrTail = "";
+    child.stderr.on("data", (chunk) => { stderrTail = (stderrTail + chunk.toString("utf8")).slice(-4096); });
+    child.stdout.pipe(response);
+    request.on("close", () => child.kill("SIGKILL"));
+    child.on("close", (code, signal) => {
+      const context = code && !signal ? { stderr: stderrTail } : undefined;
+      void logger?.info("transcode", `ffmpeg exited code=${code ?? "none"} signal=${signal ?? "none"} encoder=${plan.videoEncoder} cap=${plan.clamped.maxWidth}x${plan.clamped.maxHeight}`, context);
+      response.end();
+    });
+    child.on("error", (error) => {
+      void logger?.error("transcode", `ffmpeg spawn failed: ${error.message}`);
+      response.destroy();
+    });
+    void logger?.info("transcode", `started ${plan.videoEncoder} for a ${sessionRecord.inputKind} source capped at ${plan.clamped.maxWidth}x${plan.clamped.maxHeight}`);
+    return;
+  }
+  if (requestUrl.pathname === "/api/logs" && request.method === "POST") {
+    const payload = await readJson(request);
+    const entries = Array.isArray(payload.entries) ? payload.entries.slice(0, 50) : [];
+    for (const entry of entries) {
+      const level = entry?.level === "error" ? "error" : entry?.level === "warn" ? "warn" : "info";
+      void logger?.[level]("client", typeof entry?.message === "string" ? entry.message.slice(0, 2048) : "client log entry", entry?.context);
+    }
+    return sendJson(response, 202, { accepted: entries.length }, origin);
+  }
   sendJson(response, 404, { error: "Gateway route not found." }, origin);
 }
 
-export function createGatewayServer({ sessionToken = process.env.OPENSTREAM_GATEWAY_TOKEN } = {}) {
+export function createGatewayServer({
+  sessionToken = process.env.OPENSTREAM_GATEWAY_TOKEN,
+  logger = createLogger({ mirrorToConsole: false }),
+} = {}) {
   const session = createGatewaySession(sessionToken);
   return http.createServer((request, response) => {
-    void routeRequest(request, response, session).catch((error) => {
+    const startedAt = Date.now();
+    const loggedPath = (request.url ?? "/").split("?")[0];
+    response.on("finish", () => {
+      void logger?.info("gateway", `${request.method} ${loggedPath} -> ${response.statusCode}`, { ms: Date.now() - startedAt });
+    });
+    void routeRequest(request, response, session, logger).catch((error) => {
       const origin = request.headers.origin;
       const message = error instanceof SyntaxError ? "Request JSON is invalid." : error.message || "Gateway request failed.";
       const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      void logger?.warn("gateway", `${request.method} ${loggedPath} failed: ${message}`);
+      if (response.headersSent) {
+        // A streaming body already started; the JSON error channel is gone.
+        response.destroy();
+        return;
+      }
       sendJson(response, statusCode, { error: message }, origin);
     });
   });
@@ -673,8 +814,10 @@ export function createGatewayServer({ sessionToken = process.env.OPENSTREAM_GATE
 
 const isEntrypoint = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isEntrypoint) {
-  const server = createGatewayServer({ sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN });
+  const logger = createLogger();
+  const server = createGatewayServer({ sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN, logger });
   server.listen(port, host, () => {
     console.log(`OpenStream secure gateway listening on http://${host}:${port}`);
+    console.log(`OpenStream gateway logs: ${logger.directory}`);
   });
 }

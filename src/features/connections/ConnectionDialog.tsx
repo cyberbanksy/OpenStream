@@ -1,4 +1,4 @@
-import { Cloud, Database, Download, Puzzle, Server, X } from "lucide-react";
+import { Cloud, Database, Download, HardDrive, Puzzle, Server, X } from "lucide-react";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app/AppContext";
 import { useDialogFocusTrap } from "../../app/useDialogFocusTrap";
@@ -6,6 +6,7 @@ import type { ConnectionKind, ConnectionSummary } from "../../integrations/conne
 import { connectThroughGateway } from "../../integrations/gateway";
 
 const kinds: Array<{ id: ConnectionKind; label: string; icon: typeof Server }> = [
+  { id: "nas-folder", label: "NAS folder", icon: HardDrive },
   { id: "google-drive", label: "Google Drive", icon: Cloud },
   { id: "stremio", label: "Stremio", icon: Puzzle },
   { id: "sonarr", label: "Sonarr", icon: Server },
@@ -17,7 +18,7 @@ const kinds: Array<{ id: ConnectionKind; label: string; icon: typeof Server }> =
 export function ConnectionDialog() {
   const { closeConnectionDialog, notify, upsertConnection } = useApp();
   const dialogRef = useRef<HTMLElement>(null);
-  const [kind, setKind] = useState<ConnectionKind>("google-drive");
+  const [kind, setKind] = useState<ConnectionKind>("nas-folder");
   const [baseUrl, setBaseUrl] = useState("");
   const [credential, setCredential] = useState("");
   const [username, setUsername] = useState("");
@@ -63,18 +64,21 @@ export function ConnectionDialog() {
         <form onSubmit={save}>
           <div className="connection-kind-grid" role="radiogroup" aria-label="Connection type">
             {kinds.map(({ id, label, icon: Icon }) => (
-              <button data-focusable data-dialog-autofocus={id === "google-drive" ? true : undefined} type="button" role="radio" aria-checked={kind === id} className={kind === id ? "kind-button selected" : "kind-button"} key={id} onClick={() => chooseKind(id)}>
+              <button data-focusable data-dialog-autofocus={id === "nas-folder" ? true : undefined} type="button" role="radio" aria-checked={kind === id} className={kind === id ? "kind-button selected" : "kind-button"} key={id} onClick={() => chooseKind(id)}>
                 <Icon size={20} /><span>{label}</span>
               </button>
             ))}
           </div>
           <div className="form-stack">
-            {kind === "google-drive" ? null : (
+            {kind === "nas-folder" ? (
+              <label>Mounted folder path<input data-focusable type="text" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="/Volumes/Media" required /></label>
+            ) : kind === "google-drive" ? null : (
               <label>Server or manifest URL<input data-focusable type="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder={kind === "stremio" ? "https://addon.example/manifest.json" : "https://server.example"} required /></label>
             )}
             {kind === "nzbget" ? <label>Username<input data-focusable value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></label> : null}
-            {kind === "stremio" ? null : <label>{kind === "google-drive" ? "OAuth client ID" : kind === "nzbget" ? "Password" : "API key"}<input data-focusable type={kind === "google-drive" ? "text" : "password"} value={credential} onChange={(event) => setCredential(event.target.value)} autoComplete="off" required /></label>}
-            {kind !== "google-drive" ? <label className="check-row"><input data-focusable type="checkbox" checked={allowPrivateNetwork} onChange={(event) => setAllowPrivateNetwork(event.target.checked)} /><span>Allow this connection to reach my local network</span></label> : null}
+            {kind === "stremio" || kind === "nas-folder" ? null : <label>{kind === "google-drive" ? "OAuth client ID" : kind === "nzbget" ? "Password" : "API key"}<input data-focusable type={kind === "google-drive" ? "text" : "password"} value={credential} onChange={(event) => setCredential(event.target.value)} autoComplete="off" required /></label>}
+            {kind !== "google-drive" && kind !== "nas-folder" ? <label className="check-row"><input data-focusable type="checkbox" checked={allowPrivateNetwork} onChange={(event) => setAllowPrivateNetwork(event.target.checked)} /><span>Allow this connection to reach my local network</span></label> : null}
+            {kind === "nas-folder" ? <p className="dialog-hint">Point OpenStream at a folder this computer can already read — a mounted SMB/NFS share or a local library. Files stream through the loopback gateway with range support and on-demand local transcoding.</p> : null}
           </div>
           <footer><button data-focusable type="button" className="text-button" onClick={closeConnectionDialog}>Cancel</button><button data-focusable className="action-button primary" type="submit" disabled={state === "checking"}>{state === "checking" ? "Checking…" : kind === "google-drive" ? "Authorize" : "Test & connect"}</button></footer>
         </form>

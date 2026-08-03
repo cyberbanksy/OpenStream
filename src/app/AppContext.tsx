@@ -21,7 +21,7 @@ import {
 import { inferPlatform, probeBrowserCapabilities } from "../domain/platform";
 import type { MediaItem } from "../domain/media";
 import type { ConnectionSummary } from "../integrations/connection";
-import { listGatewayConnections } from "../integrations/gateway";
+import { getTranscoderCapabilities, listGatewayConnections, type TranscoderCapabilities } from "../integrations/gateway";
 import { completeStandardOnboarding, enableKidsMode, loadActivePolicy } from "./appProfile";
 import type { PlaybackSession, ToastMessage, ViewId } from "./types";
 
@@ -34,6 +34,7 @@ type AppContextValue = {
   kidsMode: boolean;
   completeOnboarding: (mode: "standard" | "kids", kidsPolicy?: KidsPolicy) => void;
   capabilities: PlaybackCapabilities;
+  transcoder?: TranscoderCapabilities;
   playback?: PlaybackSession;
   connections: ConnectionSummary[];
   connectionDialogOpen: boolean;
@@ -89,6 +90,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [connections, setConnections] = useState<ConnectionSummary[]>(initialConnections);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage>();
+  const [transcoder, setTranscoder] = useState<TranscoderCapabilities>();
   const toastId = useRef(0);
   const kidsMode = policy?.mode === "kids";
   const visibleCatalog = useMemo(() => filterCatalog(catalog, policy ?? standardPolicy), [policy]);
@@ -187,6 +189,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     void probeBrowserCapabilities().then((result) => {
       if (!cancelled) setCapabilities(result);
     });
+    getTranscoderCapabilities()
+      .then((result) => { if (!cancelled) setTranscoder(result); })
+      .catch(() => {
+        // Transcoding is an optional gateway capability; absence is fine.
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -266,6 +273,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     kidsMode,
     completeOnboarding,
     capabilities,
+    transcoder,
     playback,
     connections,
     connectionDialogOpen,
@@ -299,6 +307,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     selectedItem,
     setPlaybackStatus,
     toast,
+    transcoder,
     upsertConnection,
     view,
     visibleCatalog,

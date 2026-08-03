@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "../../app/AppContext";
 import { StatusDot } from "../../components/StatusDot";
 import type { ConnectionKind, ConnectionSummary } from "../../integrations/connection";
+import { NasBrowser } from "./NasBrowser";
 
 const iconByKind: Partial<Record<ConnectionKind, typeof Server>> = {
   "google-drive": Cloud,
@@ -11,6 +12,7 @@ const iconByKind: Partial<Record<ConnectionKind, typeof Server>> = {
   radarr: Server,
   sabnzbd: Download,
   nzbget: Download,
+  "nas-folder": HardDrive,
   smb: HardDrive,
   jellyfin: Database,
   plex: Database,
@@ -33,7 +35,7 @@ export function ConnectionsScreen() {
   const [selectedId, setSelectedId] = useState(connections[0]?.id);
   const selected = useMemo(() => connections.find((item) => item.id === selectedId) ?? connections[0], [connections, selectedId]);
   const groups = [
-    { title: "Libraries", kinds: new Set<ConnectionKind>(["smb", "jellyfin", "plex", "google-drive"]) },
+    { title: "Libraries", kinds: new Set<ConnectionKind>(["nas-folder", "smb", "jellyfin", "plex", "google-drive"]) },
     { title: "Discovery & requests", kinds: new Set<ConnectionKind>(["stremio", "sonarr", "radarr"]) },
     { title: "Download managers", kinds: new Set<ConnectionKind>(["sabnzbd", "nzbget"]) },
   ];
@@ -49,7 +51,10 @@ export function ConnectionsScreen() {
           })}</section>
         ))}
       </aside>
-      <section className="connections-workspace">{selected ? <ConnectionDetail connection={selected} /> : <button onClick={openConnectionDialog}>Add your first connection</button>}</section>
+      <section className="connections-workspace">
+        {selected ? <ConnectionDetail connection={selected} /> : <button onClick={openConnectionDialog}>Add your first connection</button>}
+        {selected?.kind === "nas-folder" && selected.managed ? <NasBrowser connection={selected} /> : null}
+      </section>
     </main>
   );
 }

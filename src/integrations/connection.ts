@@ -5,6 +5,7 @@ export type ConnectionKind =
   | "radarr"
   | "sabnzbd"
   | "nzbget"
+  | "nas-folder"
   | "smb"
   | "jellyfin"
   | "plex";

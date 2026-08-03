@@ -7,6 +7,8 @@ const DEV_ORIGIN = "http://127.0.0.1";
 const CAPABILITY_MEDIA_PATHS = new Set([
   "/gateway/google-drive/media",
   "/gateway/stremio/media",
+  "/gateway/nas/media",
+  "/gateway/transcode/media",
 ]);
 
 export const BROWSER_SESSION_HEADER = "x-openstream-browser-session";
