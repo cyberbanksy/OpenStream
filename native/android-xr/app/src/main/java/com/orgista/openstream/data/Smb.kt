@@ -19,11 +19,29 @@ fun isVideoFileName(name: String): Boolean =
  * computer in the middle. All calls must run off the main thread.
  */
 object Smb {
-    fun context(connection: NasConnection): CIFSContext {
+    // One authenticated CIFS context per connection. Building a context opens
+    // a fresh connection pool, so reusing it across ExoPlayer's many seeks
+    // (each a close+open) avoids re-negotiating and re-authenticating SMB on
+    // every read — the difference between stalling and smooth streaming.
+    private val contextCache = java.util.concurrent.ConcurrentHashMap<String, CIFSContext>()
+
+    fun context(connection: NasConnection): CIFSContext =
+        contextCache.getOrPut("${connection.host}|${connection.share}|${connection.username}") {
+            buildContext(connection)
+        }
+
+    private fun buildContext(connection: NasConnection): CIFSContext {
         val properties = Properties().apply {
             setProperty("jcifs.smb.client.minVersion", "SMB202")
             setProperty("jcifs.smb.client.maxVersion", "SMB311")
-            setProperty("jcifs.smb.client.responseTimeout", "15000")
+            setProperty("jcifs.smb.client.responseTimeout", "30000")
+            setProperty("jcifs.smb.client.soTimeout", "35000")
+            setProperty("jcifs.smb.client.connTimeout", "10000")
+            // Streaming throughput: skip DFS lookups and use large transfer
+            // buffers so ExoPlayer fills its buffer in few round trips.
+            setProperty("jcifs.smb.client.dfs.disabled", "true")
+            setProperty("jcifs.smb.client.rcv_buf_size", "1048576")
+            setProperty("jcifs.smb.client.snd_buf_size", "1048576")
         }
         val base = BaseContext(PropertyConfiguration(properties))
         return if (connection.username.isNotBlank()) {
@@ -65,6 +83,33 @@ object Smb {
         SmbFile(shareUrl(connection), context(connection)).use { root ->
             if (!root.exists()) throw IllegalStateException("The share was reachable but does not exist.")
         }
+    }
+
+    /**
+     * Recursively collects video files under a share path for library
+     * indexing. Bounded in depth and count so a huge share can't hang the
+     * scan. Runs off the main thread.
+     */
+    fun walkVideos(connection: NasConnection, relativePath: String = "", maxDepth: Int = 6, limit: Int = 5000): List<NasEntry> {
+        val results = ArrayList<NasEntry>()
+        fun recurse(path: String, depth: Int) {
+            if (depth > maxDepth || results.size >= limit) return
+            val directory = SmbFile(shareUrl(connection, path), context(connection))
+            val children = directory.listFiles() ?: return
+            for (file in children) {
+                if (results.size >= limit) return
+                val name = file.name.trimEnd('/')
+                if (name.startsWith(".")) continue
+                val childPath = if (path.isEmpty()) name else "${path.trim('/')}/$name"
+                if (file.isDirectory) {
+                    recurse(childPath, depth + 1)
+                } else if (isVideoFileName(name)) {
+                    results.add(NasEntry(name, childPath, false, file.length()))
+                }
+            }
+        }
+        recurse(relativePath, 0)
+        return results
     }
 
     /** True when a failure means the named share does not exist on the server. */

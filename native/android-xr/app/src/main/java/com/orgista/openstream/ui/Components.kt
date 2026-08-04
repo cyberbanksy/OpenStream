@@ -116,14 +116,7 @@ fun MediaCard(item: MediaItem, width: Dp, onOpen: (MediaItem) -> Unit) {
         border = BorderStroke(1.dp, Color(0x14E6F0F5)),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-            if (item.artRes != null) {
-                Image(
-                    painter = painterResource(item.artRes),
-                    contentDescription = item.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
+            Poster(item, Modifier.fillMaxSize())
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(

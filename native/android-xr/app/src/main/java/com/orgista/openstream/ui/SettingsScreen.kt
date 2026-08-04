@@ -15,7 +15,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,9 +55,15 @@ private fun stateColor(state: SupportState): Color = when (state) {
 
 /** Device capability report (real decoder/display probes) plus family status. */
 @Composable
-fun SettingsScreen(policy: ContentPolicy) {
+fun SettingsScreen(
+    policy: ContentPolicy,
+    libraryStore: com.orgista.openstream.library.LibraryStore,
+    onTmdbKeyChanged: () -> Unit,
+) {
     val context = LocalContext.current
     val report = remember { HdrCapabilityProbe.inspect(context) }
+    var tmdbKey by remember { mutableStateOf(libraryStore.tmdbApiKey) }
+    var savedKey by remember { mutableStateOf(libraryStore.tmdbApiKey) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
@@ -66,6 +76,39 @@ fun SettingsScreen(policy: ContentPolicy) {
             fontWeight = FontWeight.ExtraBold,
             color = OpenStreamColors.Text,
         )
+
+        Panel("Metadata (TMDB)") {
+            Text(
+                if (savedKey.isBlank()) "Add a free TMDB API key to fetch posters, backdrops, and descriptions for your libraries."
+                else "Posters and descriptions are enabled. Libraries re-scan when you change this key.",
+                fontSize = 13.sp,
+                color = OpenStreamColors.Muted,
+            )
+            androidx.compose.material3.OutlinedTextField(
+                value = tmdbKey,
+                onValueChange = { tmdbKey = it.trim() },
+                singleLine = true,
+                label = { Text("TMDB API key") },
+                placeholder = { Text("themoviedb.org → Settings → API") },
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = OpenStreamColors.Accent.copy(alpha = 0.6f),
+                    unfocusedBorderColor = OpenStreamColors.Border,
+                ),
+            )
+            androidx.compose.material3.Button(
+                onClick = {
+                    libraryStore.tmdbApiKey = tmdbKey
+                    savedKey = tmdbKey
+                    onTmdbKeyChanged()
+                },
+                enabled = tmdbKey != savedKey,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = OpenStreamColors.Accent,
+                    contentColor = OpenStreamColors.CanvasDeep,
+                ),
+            ) { Text(if (savedKey.isBlank()) "Save & scan" else "Update & re-scan") }
+        }
 
         Panel("Family & content") {
             when (policy) {

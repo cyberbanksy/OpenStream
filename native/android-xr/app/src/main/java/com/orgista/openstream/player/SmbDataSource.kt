@@ -22,25 +22,39 @@ class SmbDataSource(private val connection: NasConnection) : BaseDataSource(true
     private var file: SmbRandomAccessFile? = null
     private var uri: Uri? = null
     private var bytesRemaining: Long = 0
+    private var loggedFirstRead = false
+
+    // Read-ahead buffer. ExoPlayer's extractors read a few bytes at a time
+    // while parsing container structure; over SMB each read is a network round
+    // trip, so we fill a large buffer per SMB read and serve the small reads
+    // from memory. Without this, parsing a multi-GB MKV takes minutes.
+    private val readAhead = ByteArray(256 * 1024)
+    private var bufferPos = 0
+    private var bufferLen = 0
 
     override fun open(dataSpec: DataSpec): Long {
         try {
             uri = dataSpec.uri
             transferInitializing(dataSpec)
             val smbFile = SmbFile(dataSpec.uri.toString(), Smb.context(connection))
+            val length = smbFile.length()
             val access = SmbRandomAccessFile(smbFile, "r")
             file = access
             if (dataSpec.position > 0) access.seek(dataSpec.position)
-            val length = smbFile.length()
             bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
                 dataSpec.length
             } else {
                 length - dataSpec.position
             }
             if (bytesRemaining < 0) throw IOException("SMB read position is past the end of the file.")
+            bufferPos = 0
+            bufferLen = 0
+            loggedFirstRead = false
+            com.orgista.openstream.Logs.event("smb open ok: pos=${dataSpec.position} len=$length remaining=$bytesRemaining")
             transferStarted(dataSpec)
             return bytesRemaining
         } catch (error: Exception) {
+            com.orgista.openstream.Logs.error("smb open failed: ${error.message}")
             throw IOException("SMB open failed: ${error.message}", error)
         }
     }
@@ -48,16 +62,33 @@ class SmbDataSource(private val connection: NasConnection) : BaseDataSource(true
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
-        val toRead = minOf(length.toLong(), bytesRemaining).toInt()
-        val read = try {
-            file?.read(buffer, offset, toRead) ?: -1
-        } catch (error: Exception) {
-            throw IOException("SMB read failed: ${error.message}", error)
+
+        if (bufferPos >= bufferLen) {
+            // Refill: one large SMB read serves many small extractor reads.
+            val toRead = minOf(readAhead.size.toLong(), bytesRemaining).toInt()
+            val startedAt = System.currentTimeMillis()
+            val filled = try {
+                file?.read(readAhead, 0, toRead) ?: -1
+            } catch (error: Exception) {
+                com.orgista.openstream.Logs.error("smb read failed: ${error.message}")
+                throw IOException("SMB read failed: ${error.message}", error)
+            }
+            if (!loggedFirstRead) {
+                loggedFirstRead = true
+                com.orgista.openstream.Logs.event("smb refill: asked=$toRead got=$filled in ${System.currentTimeMillis() - startedAt}ms")
+            }
+            if (filled <= 0) return C.RESULT_END_OF_INPUT
+            bufferPos = 0
+            bufferLen = filled
         }
-        if (read < 0) return C.RESULT_END_OF_INPUT
-        bytesRemaining -= read
-        bytesTransferred(read)
-        return read
+
+        val available = bufferLen - bufferPos
+        val toCopy = minOf(length, available)
+        System.arraycopy(readAhead, bufferPos, buffer, offset, toCopy)
+        bufferPos += toCopy
+        bytesRemaining -= toCopy
+        bytesTransferred(toCopy)
+        return toCopy
     }
 
     override fun getUri(): Uri? = uri

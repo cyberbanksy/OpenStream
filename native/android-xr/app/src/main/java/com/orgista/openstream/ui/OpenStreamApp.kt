@@ -36,6 +36,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import com.orgista.openstream.Logs
 import com.orgista.openstream.R
 import com.orgista.openstream.data.ConnectionStore
@@ -47,6 +49,11 @@ import com.orgista.openstream.domain.ContentPolicy
 import com.orgista.openstream.domain.ProfileStore
 import com.orgista.openstream.domain.filterCatalog
 import com.orgista.openstream.domain.isItemAllowed
+import com.orgista.openstream.library.IndexedLibrary
+import com.orgista.openstream.library.LibraryIndexer
+import com.orgista.openstream.library.LibraryKind
+import com.orgista.openstream.library.LibraryStore
+import com.orgista.openstream.library.Tmdb
 import com.orgista.openstream.ui.icons.AppIcons
 
 /** A playback request routed to the player: what to play and how to reach it. */
@@ -74,7 +81,38 @@ fun OpenStreamApp(onExit: () -> Unit) {
     val context = LocalContext.current
     val profileStore = remember { ProfileStore(context.applicationContext) }
     val connectionStore = remember { ConnectionStore(context.applicationContext) }
+    val libraryStore = remember { LibraryStore(context.applicationContext) }
     var policy by remember { mutableStateOf(profileStore.loadActivePolicy()) }
+    var indexed by remember { mutableStateOf<IndexedLibrary?>(null) }
+    var indexing by remember { mutableStateOf(false) }
+    var libraryRevision by remember { mutableIntStateOf(0) }
+
+    // Scan every added folder library, parse filenames, and (if a TMDB key is
+    // set) enrich with posters — off the main thread. Re-runs when a folder is
+    // added/removed or the key changes (libraryRevision bumps).
+    LaunchedEffect(libraryRevision) {
+        val folders = libraryStore.folders()
+        if (folders.isEmpty()) {
+            indexed = null
+            return@LaunchedEffect
+        }
+        indexing = true
+        val tmdb = Tmdb(libraryStore.tmdbApiKey)
+        val connections = connectionStore.nasConnections().associateBy { it.id }
+        val movies = ArrayList<MediaItem>()
+        val shows = ArrayList<MediaItem>()
+        for (folder in folders) {
+            val connection = connections[folder.connectionId] ?: continue
+            val result = LibraryIndexer.index(connection, folder, tmdb)
+            movies += result.movies
+            shows += result.shows
+        }
+        indexed = IndexedLibrary(
+            movies.sortedBy { it.title.lowercase() },
+            shows.sortedBy { it.title.lowercase() },
+        )
+        indexing = false
+    }
 
     val activePolicy = policy
     if (activePolicy == null) {
@@ -92,7 +130,12 @@ fun OpenStreamApp(onExit: () -> Unit) {
     }
 
     val kidsMode = activePolicy is ContentPolicy.Kids
-    val catalog = remember(activePolicy) { filterCatalog(demoCatalog, activePolicy) }
+    // Real library content once folders are indexed; the demo catalog until then.
+    val library = indexed
+    val catalog = remember(activePolicy, library) {
+        val base = if (library != null && !library.isEmpty) library.all else demoCatalog
+        filterCatalog(base, activePolicy)
+    }
     var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
     var lastTab by remember { mutableStateOf<Screen>(Screen.Discover) }
 
@@ -108,8 +151,19 @@ fun OpenStreamApp(onExit: () -> Unit) {
 
     val playGuarded: (MediaItem, PlaybackRequest) -> Unit = { item, request ->
         if (isItemAllowed(item, activePolicy)) {
-            Logs.event("play: ${request.title} (${request.uri.substringBefore("://")})")
-            navigate(Screen.Player(request))
+            // SMB playback needs the connection's credentials. Indexed library
+            // items carry only the smb:// URI, so resolve the matching NAS
+            // connection by host/share here before handing off to the player.
+            val resolved = if (request.uri.startsWith("smb://") && request.nasConnection == null) {
+                val connection = connectionStore.nasConnections().firstOrNull { conn ->
+                    request.uri.startsWith(Smb.shareUrl(conn))
+                }
+                request.copy(nasConnection = connection)
+            } else {
+                request
+            }
+            Logs.event("play: ${resolved.title} (${resolved.uri.substringBefore("://")}, creds=${resolved.nasConnection != null})")
+            navigate(Screen.Player(resolved))
         } else {
             Logs.event("play blocked by kids policy: ${item.title}")
             Toast.makeText(context, "Not available in Kids Mode", Toast.LENGTH_SHORT).show()
@@ -149,6 +203,7 @@ fun OpenStreamApp(onExit: () -> Unit) {
         TopNav(
             kidsMode = kidsMode,
             current = screen,
+            indexing = indexing,
             onNavigate = navigate,
             onExit = {
                 Logs.event("exit to OpenPanel")
@@ -162,6 +217,18 @@ fun OpenStreamApp(onExit: () -> Unit) {
                 Screen.Search -> SearchScreen(catalog) { navigate(Screen.Details(it)) }
                 Screen.Connections -> ConnectionsScreen(
                     store = connectionStore,
+                    libraryStore = libraryStore,
+                    indexing = indexing,
+                    onAddLibrary = { connection, path, kind ->
+                        libraryStore.addFolder(connection.id, connection.name, path, kind)
+                        Logs.event("library added: ${connection.host}/${connection.share}/$path ($kind)")
+                        libraryRevision++
+                        navigate(Screen.Discover)
+                    },
+                    onRemoveLibrary = { id ->
+                        libraryStore.removeFolder(id)
+                        libraryRevision++
+                    },
                     onPlayNas = { connection, entry ->
                         val request = PlaybackRequest(
                             title = entry.name.substringBeforeLast('.'),
@@ -177,7 +244,11 @@ fun OpenStreamApp(onExit: () -> Unit) {
                         }
                     },
                 )
-                Screen.Settings -> SettingsScreen(policy = activePolicy)
+                Screen.Settings -> SettingsScreen(
+                    policy = activePolicy,
+                    libraryStore = libraryStore,
+                    onTmdbKeyChanged = { libraryRevision++ },
+                )
                 else -> Unit
             }
         }
@@ -188,6 +259,7 @@ fun OpenStreamApp(onExit: () -> Unit) {
 private fun TopNav(
     kidsMode: Boolean,
     current: Screen,
+    indexing: Boolean,
     onNavigate: (Screen) -> Unit,
     onExit: () -> Unit,
 ) {
@@ -224,6 +296,17 @@ private fun TopNav(
             }
         }
         Spacer(Modifier.weight(1f))
+        if (indexing) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(15.dp),
+                    strokeWidth = 2.dp,
+                    color = OpenStreamColors.Accent,
+                )
+                Text("Scanning library…", color = OpenStreamColors.Accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(16.dp))
+            }
+        }
         Surface(
             onClick = onExit,
             shape = RoundedCornerShape(50),

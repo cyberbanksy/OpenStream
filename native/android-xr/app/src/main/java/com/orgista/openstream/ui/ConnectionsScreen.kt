@@ -50,6 +50,8 @@ import com.orgista.openstream.data.NasDiscovery
 import com.orgista.openstream.data.NasEntry
 import com.orgista.openstream.data.Smb
 import com.orgista.openstream.data.StremioClient
+import com.orgista.openstream.library.LibraryKind
+import com.orgista.openstream.library.LibraryStore
 import com.orgista.openstream.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,18 +71,28 @@ private fun formatSize(bytes: Long): String = when {
 @Composable
 fun ConnectionsScreen(
     store: ConnectionStore,
+    libraryStore: LibraryStore,
+    indexing: Boolean,
+    onAddLibrary: (NasConnection, String, LibraryKind) -> Unit,
+    onRemoveLibrary: (String) -> Unit,
     onPlayNas: (NasConnection, NasEntry) -> Unit,
 ) {
     var revision by remember { mutableIntStateOf(0) }
     val nasConnections = remember(revision) { store.nasConnections() }
     val addons = remember(revision) { store.stremioAddons() }
+    val libraries = remember(revision, indexing) { libraryStore.folders() }
     var browsing by remember { mutableStateOf<NasConnection?>(null) }
     var showAddNas by remember { mutableStateOf(false) }
     var showAddAddon by remember { mutableStateOf(false) }
 
     val active = browsing
     if (active != null) {
-        NasBrowser(connection = active, onBack = { browsing = null }, onPlay = { entry -> onPlayNas(active, entry) })
+        NasBrowser(
+            connection = active,
+            onBack = { browsing = null },
+            onPlay = { entry -> onPlayNas(active, entry) },
+            onAddLibrary = { path, kind -> onAddLibrary(active, path, kind) },
+        )
         return
     }
 
@@ -102,6 +114,55 @@ fun ConnectionsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = { showAddAddon = true }) { Text("+ Add-on") }
                     Button(onClick = { showAddNas = true }) { Text("+ NAS share") }
+                }
+            }
+        }
+
+        if (libraries.isNotEmpty()) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionLabel("Libraries")
+                    if (indexing) {
+                        CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp, color = OpenStreamColors.Accent)
+                        Text("Scanning & fetching metadata…", fontSize = 12.sp, color = OpenStreamColors.Accent)
+                    }
+                }
+            }
+            items(libraries, key = { it.id }) { folder ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = OpenStreamColors.Surface,
+                    border = BorderStroke(1.dp, OpenStreamColors.Border),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(AppIcons.Folder, contentDescription = null, tint = OpenStreamColors.Accent)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "${folder.connectionName} / ${folder.path.ifBlank { "(root)" }}",
+                                fontWeight = FontWeight.Bold,
+                                color = OpenStreamColors.Text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                when (folder.kind) {
+                                    LibraryKind.MOVIES -> "Movies library"
+                                    LibraryKind.TV -> "TV library"
+                                    LibraryKind.AUTO -> "Auto-organized library"
+                                },
+                                fontSize = 13.sp,
+                                color = OpenStreamColors.Muted,
+                            )
+                        }
+                        IconButton(onClick = {
+                            onRemoveLibrary(folder.id)
+                            revision++
+                        }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                    }
                 }
             }
         }
@@ -435,10 +496,58 @@ private fun AddAddonDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun NasBrowser(connection: NasConnection, onBack: () -> Unit, onPlay: (NasEntry) -> Unit) {
+private fun AddLibraryDialog(
+    folderLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (LibraryKind) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add “$folderLabel” as a library") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "OpenStream scans this folder, reads each filename, and organizes it. " +
+                        "Add a TMDB key in Settings for posters and descriptions.",
+                    color = OpenStreamColors.TextSoft,
+                    fontSize = 14.sp,
+                )
+                LibraryKindOption("Auto-organize", "Sort movies and TV apart automatically", LibraryKind.AUTO, onConfirm)
+                LibraryKindOption("Movies", "Everything here is a movie", LibraryKind.MOVIES, onConfirm)
+                LibraryKindOption("TV Shows", "Everything here is episodes", LibraryKind.TV, onConfirm)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun LibraryKindOption(title: String, detail: String, kind: LibraryKind, onConfirm: (LibraryKind) -> Unit) {
+    Surface(
+        onClick = { onConfirm(kind) },
+        shape = RoundedCornerShape(10.dp),
+        color = OpenStreamColors.Surface,
+        border = BorderStroke(1.dp, OpenStreamColors.Border),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Text(title, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+            Text(detail, fontSize = 13.sp, color = OpenStreamColors.Muted)
+        }
+    }
+}
+
+@Composable
+private fun NasBrowser(
+    connection: NasConnection,
+    onBack: () -> Unit,
+    onPlay: (NasEntry) -> Unit,
+    onAddLibrary: (String, LibraryKind) -> Unit,
+) {
     var path by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<List<NasEntry>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showAddLibrary by remember { mutableStateOf(false) }
 
     LaunchedEffect(connection.id, path) {
         entries = null
@@ -461,21 +570,41 @@ private fun NasBrowser(connection: NasConnection, onBack: () -> Unit, onPlay: (N
             IconButton(onClick = {
                 if (path.isEmpty()) onBack() else path = path.substringBeforeLast('/', "")
             }) { Icon(AppIcons.Back, contentDescription = "Back", tint = OpenStreamColors.Text) }
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(connection.name, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, color = OpenStreamColors.Text)
                 Text("/${path}", fontSize = 13.sp, color = OpenStreamColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            Button(onClick = { showAddLibrary = true }) {
+                Icon(AppIcons.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("  Add as library")
+            }
         }
 
+        if (showAddLibrary) {
+            AddLibraryDialog(
+                folderLabel = "/${path.ifBlank { connection.share }}",
+                onDismiss = { showAddLibrary = false },
+                onConfirm = { kind ->
+                    showAddLibrary = false
+                    onAddLibrary(path, kind)
+                },
+            )
+        }
+
+        // Snapshot into a stable local: the LazyColumn item lambda is deferred,
+        // and the LaunchedEffect can flip `entries` to null on navigation — a
+        // `!!` re-read there would NPE mid-draw.
+        val currentEntries = entries
+        val currentError = error
         when {
-            error != null -> Text(error!!, color = OpenStreamColors.Danger)
-            entries == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            currentError != null -> Text(currentError, color = OpenStreamColors.Danger)
+            currentEntries == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("Reading folder…", color = OpenStreamColors.Muted)
             }
-            entries!!.isEmpty() -> Text("No folders or video files here.", color = OpenStreamColors.Muted)
+            currentEntries.isEmpty() -> Text("No folders or video files here.", color = OpenStreamColors.Muted)
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
-                items(entries!!, key = { it.path }) { entry ->
+                items(currentEntries, key = { it.path }) { entry ->
                     Surface(
                         onClick = { if (entry.isDirectory) path = entry.path else onPlay(entry) },
                         shape = RoundedCornerShape(8.dp),

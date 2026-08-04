@@ -61,5 +61,8 @@ dependencies {
     // Pure-Java SMB2/3 client for direct NAS access; no gateway required.
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
 
+    // Async image loading for remote TMDB posters/backdrops.
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     testImplementation("junit:junit:4.13.2")
 }

@@ -62,15 +62,7 @@ fun DiscoverScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(400.dp)) {
-            if (featured.artRes != null) {
-                Image(
-                    painter = painterResource(featured.artRes!!),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter,
-                )
-            }
+            Poster(featured, Modifier.fillMaxSize(), useBackdrop = true)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(

@@ -1,0 +1,76 @@
+package com.orgista.openstream.library
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+enum class LibraryKind { MOVIES, TV, AUTO }
+
+/**
+ * A folder the user added as a library: a NAS connection plus a sub-path,
+ * indexed into organized Movies/TV. Credentials live with the connection, not
+ * here.
+ */
+data class LibraryFolder(
+    val id: String,
+    val connectionId: String,
+    val connectionName: String,
+    val path: String,
+    val kind: LibraryKind,
+)
+
+class LibraryStore(context: Context) {
+    private val prefs = context.getSharedPreferences("openstream.library", Context.MODE_PRIVATE)
+
+    var tmdbApiKey: String
+        get() = prefs.getString(KEY_TMDB, "") ?: ""
+        set(value) { prefs.edit().putString(KEY_TMDB, value.trim()).apply() }
+
+    fun folders(): List<LibraryFolder> {
+        val raw = prefs.getString(KEY_FOLDERS, "[]") ?: "[]"
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).map { index ->
+                val json = array.getJSONObject(index)
+                LibraryFolder(
+                    id = json.getString("id"),
+                    connectionId = json.getString("connectionId"),
+                    connectionName = json.optString("connectionName"),
+                    path = json.optString("path"),
+                    kind = runCatching { LibraryKind.valueOf(json.optString("kind")) }.getOrDefault(LibraryKind.AUTO),
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun addFolder(connectionId: String, connectionName: String, path: String, kind: LibraryKind): LibraryFolder {
+        val folder = LibraryFolder(UUID.randomUUID().toString(), connectionId, connectionName, path, kind)
+        writeFolders(folders() + folder)
+        return folder
+    }
+
+    fun removeFolder(id: String) = writeFolders(folders().filter { it.id != id })
+
+    private fun writeFolders(list: List<LibraryFolder>) {
+        val array = JSONArray()
+        list.forEach { folder ->
+            array.put(
+                JSONObject()
+                    .put("id", folder.id)
+                    .put("connectionId", folder.connectionId)
+                    .put("connectionName", folder.connectionName)
+                    .put("path", folder.path)
+                    .put("kind", folder.kind.name),
+            )
+        }
+        prefs.edit().putString(KEY_FOLDERS, array.toString()).apply()
+    }
+
+    private companion object {
+        const val KEY_FOLDERS = "folders.v1"
+        const val KEY_TMDB = "tmdbApiKey.v1"
+    }
+}

@@ -67,14 +67,7 @@ fun DetailsScreen(
 
     Column(Modifier.fillMaxSize().background(OpenStreamColors.Canvas).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(320.dp)) {
-            if (item.artRes != null) {
-                Image(
-                    painter = painterResource(item.artRes),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
+            Poster(item, Modifier.fillMaxSize(), useBackdrop = true)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
@@ -96,9 +89,10 @@ fun DetailsScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val first = item.candidates.firstOrNull()
-                PillButton("Play", icon = AppIcons.Play, enabled = first != null) {
+                val playLabel = if (item.episodes.isNotEmpty()) "Play S1 E1" else "Play"
+                PillButton(playLabel, icon = AppIcons.Play, enabled = first != null) {
                     if (first != null) {
-                        onPlay(PlaybackRequest(item.title, first.sourceName, first.uri))
+                        onPlay(PlaybackRequest(item.title, item.episodes.firstOrNull()?.subtitle ?: first.sourceName, first.uri))
                     }
                 }
                 if (!kidsMode && addons.isNotEmpty() && item.imdbId != null) {
@@ -118,6 +112,29 @@ fun DetailsScreen(
                             } else {
                                 streamResults = found
                             }
+                        }
+                    }
+                }
+            }
+
+            if (item.episodes.isNotEmpty()) {
+                SectionHeader("Episodes")
+                item.episodes.forEach { episode ->
+                    val epCandidate = episode.candidates.firstOrNull()
+                    Surface(
+                        onClick = { epCandidate?.let { onPlay(PlaybackRequest("${item.title} · ${episode.subtitle}", item.title, it.uri)) } },
+                        shape = RoundedCornerShape(10.dp),
+                        color = OpenStreamColors.Surface,
+                        border = BorderStroke(1.dp, OpenStreamColors.Border),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(AppIcons.Play, contentDescription = null, tint = OpenStreamColors.Accent, modifier = Modifier.size(18.dp))
+                            Text(episode.subtitle ?: "Episode", fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                            Text(epCandidate?.formatLabel ?: "", fontSize = 12.sp, color = OpenStreamColors.Muted, modifier = Modifier.weight(1f))
                         }
                     }
                 }

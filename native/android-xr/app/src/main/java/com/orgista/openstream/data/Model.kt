@@ -28,7 +28,12 @@ data class MediaItem(
     val rating: String,
     val runtimeMinutes: Int,
     @DrawableRes val artRes: Int? = null,
+    /** Remote poster (TMDB); takes precedence over artRes when present. */
+    val posterUrl: String? = null,
+    val backdropUrl: String? = null,
     val imdbId: String? = null,
     val progressPercent: Int? = null,
     val candidates: List<MediaCandidate> = emptyList(),
+    /** For series: the episodes grouped under this show, season-ordered. */
+    val episodes: List<MediaItem> = emptyList(),
 )
