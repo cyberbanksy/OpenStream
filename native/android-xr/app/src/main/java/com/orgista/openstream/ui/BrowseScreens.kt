@@ -19,7 +19,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -91,11 +93,11 @@ fun DiscoverScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 Text(
-                    if (featured.kind == MediaKind.SERIES) "SERIES" else "FEATURE",
+                    if (featured.kind == MediaKind.SERIES) "SERIES" else "FEATURED",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 3.sp,
-                    color = OpenStreamColors.Coral,
+                    color = OpenStreamColors.Accent,
                 )
                 Text(
                     featured.title,
@@ -199,8 +201,9 @@ fun SearchScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
             shape = RoundedCornerShape(12.dp),
             placeholder = { Text("Search titles across every connected source", color = OpenStreamColors.Muted) },
             leadingIcon = { Icon(AppIcons.Search, contentDescription = null, tint = OpenStreamColors.Muted) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = OpenStreamColors.Cyan.copy(alpha = 0.6f),
+                focusedBorderColor = OpenStreamColors.Accent.copy(alpha = 0.6f),
                 unfocusedBorderColor = OpenStreamColors.Border,
             ),
         )

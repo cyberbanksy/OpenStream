@@ -51,6 +51,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.11.0")
+    implementation("androidx.core:core-ktx:1.17.0")
 
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")

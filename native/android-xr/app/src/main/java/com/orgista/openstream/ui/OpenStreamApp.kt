@@ -10,13 +10,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -29,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -66,8 +67,10 @@ sealed interface Screen {
     data class Player(val request: PlaybackRequest) : Screen
 }
 
+private data class Tab(val screen: Screen, val label: String, val kidsHidden: Boolean = false)
+
 @Composable
-fun OpenStreamApp() {
+fun OpenStreamApp(onExit: () -> Unit) {
     val context = LocalContext.current
     val profileStore = remember { ProfileStore(context.applicationContext) }
     val connectionStore = remember { ConnectionStore(context.applicationContext) }
@@ -91,14 +94,14 @@ fun OpenStreamApp() {
     val kidsMode = activePolicy is ContentPolicy.Kids
     val catalog = remember(activePolicy) { filterCatalog(demoCatalog, activePolicy) }
     var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
-    var lastBrowseScreen by remember { mutableStateOf<Screen>(Screen.Discover) }
+    var lastTab by remember { mutableStateOf<Screen>(Screen.Discover) }
 
     val navigate: (Screen) -> Unit = { next ->
         Logs.event("navigate: ${next::class.simpleName}")
         if (next is Screen.Discover || next is Screen.Library || next is Screen.Search ||
             next is Screen.Connections || next is Screen.Settings
         ) {
-            lastBrowseScreen = next
+            lastTab = next
         }
         screen = next
     }
@@ -115,33 +118,42 @@ fun OpenStreamApp() {
 
     when (val current = screen) {
         is Screen.Details -> {
-            BackHandler { screen = lastBrowseScreen }
+            BackHandler { screen = lastTab }
             DetailsScreen(
                 item = current.item,
                 kidsMode = kidsMode,
                 addons = connectionStore.stremioAddons(),
-                onBack = { screen = lastBrowseScreen },
+                onBack = { screen = lastTab },
                 onPlay = { request -> playGuarded(current.item, request) },
             )
             return
         }
         is Screen.Player -> {
-            BackHandler { screen = lastBrowseScreen }
-            PlayerScreen(request = current.request, onBack = { screen = lastBrowseScreen })
+            BackHandler { screen = lastTab }
+            PlayerScreen(request = current.request, onBack = { screen = lastTab })
             return
         }
         else -> Unit
     }
 
-    // From any tab other than Discover, back returns to Discover; from
-    // Discover the system handles it and leaves the app.
-    BackHandler(enabled = screen != Screen.Discover) { navigate(Screen.Discover) }
+    // Back from any tab returns to Discover; from Discover it leaves the app
+    // (returning to OpenPanel in the kiosk).
+    BackHandler { if (screen != Screen.Discover) navigate(Screen.Discover) else onExit() }
 
-    Row(Modifier.fillMaxSize().background(OpenStreamColors.Canvas)) {
-        NavRail(
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(OpenStreamColors.Canvas)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
+        TopNav(
             kidsMode = kidsMode,
             current = screen,
             onNavigate = navigate,
+            onExit = {
+                Logs.event("exit to OpenPanel")
+                onExit()
+            },
         )
         Box(Modifier.fillMaxSize()) {
             when (screen) {
@@ -157,7 +169,6 @@ fun OpenStreamApp() {
                             uri = Smb.fileUrl(connection, entry.path),
                             nasConnection = connection,
                         )
-                        // NAS files carry no certification; Kids Mode blocks them.
                         if (kidsMode) {
                             Toast.makeText(context, "Not available in Kids Mode", Toast.LENGTH_SHORT).show()
                         } else {
@@ -174,78 +185,94 @@ fun OpenStreamApp() {
 }
 
 @Composable
-private fun NavRail(
+private fun TopNav(
     kidsMode: Boolean,
     current: Screen,
     onNavigate: (Screen) -> Unit,
+    onExit: () -> Unit,
 ) {
-    Column(
+    val tabs = listOf(
+        Tab(Screen.Discover, "Discover"),
+        Tab(Screen.Library, "Library"),
+        Tab(Screen.Search, "Search"),
+        Tab(Screen.Connections, "Sources", kidsHidden = true),
+        Tab(Screen.Settings, "Settings"),
+    ).filter { !kidsMode || !it.kidsHidden }
+
+    Row(
         modifier = Modifier
-            .fillMaxHeight()
-            .width(92.dp)
+            .fillMaxWidth()
             .background(OpenStreamColors.CanvasDeep)
-            .padding(vertical = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 26.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(
             painter = painterResource(R.drawable.openstream_mark),
             contentDescription = "OpenStream",
-            modifier = Modifier.size(34.dp),
+            modifier = Modifier.size(30.dp),
         )
+        Spacer(Modifier.width(10.dp))
+        Text("OpenStream", fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
         if (kidsMode) {
-            Surface(
-                modifier = Modifier.padding(top = 10.dp),
-                shape = RoundedCornerShape(50),
-                color = OpenStreamColors.Amber.copy(alpha = 0.14f),
-                border = BorderStroke(1.dp, OpenStreamColors.Amber.copy(alpha = 0.45f)),
-            ) {
-                Text(
-                    "KIDS",
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.sp,
-                    color = OpenStreamColors.Amber,
-                )
+            Spacer(Modifier.width(10.dp))
+            KidsBadge()
+        }
+        Spacer(Modifier.width(34.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            tabs.forEach { tab ->
+                TabButton(tab.label, current == tab.screen) { onNavigate(tab.screen) }
             }
         }
-        Spacer(Modifier.height(26.dp))
-        RailItem("Discover", AppIcons.Home, current == Screen.Discover) { onNavigate(Screen.Discover) }
-        RailItem("Library", AppIcons.Library, current == Screen.Library) { onNavigate(Screen.Library) }
-        RailItem("Search", AppIcons.Search, current == Screen.Search) { onNavigate(Screen.Search) }
-        if (!kidsMode) {
-            RailItem("Sources", AppIcons.Storage, current == Screen.Connections) { onNavigate(Screen.Connections) }
-        }
         Spacer(Modifier.weight(1f))
-        RailItem("Settings", AppIcons.Settings, current == Screen.Settings) { onNavigate(Screen.Settings) }
+        Surface(
+            onClick = onExit,
+            shape = RoundedCornerShape(50),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, OpenStreamColors.BorderStrong),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(AppIcons.Close, contentDescription = null, tint = OpenStreamColors.TextSoft, modifier = Modifier.size(17.dp))
+                Text("Exit", color = OpenStreamColors.TextSoft, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
 @Composable
-private fun RailItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.padding(vertical = 5.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = if (selected) OpenStreamColors.Surface else Color.Transparent,
+        shape = RoundedCornerShape(50),
+        color = if (selected) OpenStreamColors.SurfaceRaised else Color.Transparent,
     ) {
-        Column(
-            Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = if (selected) OpenStreamColors.Cyan else OpenStreamColors.Muted,
-                modifier = Modifier.size(23.dp),
-            )
-            Text(
-                label,
-                fontSize = 10.sp,
-                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
-                color = if (selected) OpenStreamColors.Cyan else OpenStreamColors.Muted,
-            )
-        }
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+            color = if (selected) OpenStreamColors.Text else OpenStreamColors.Muted,
+            fontSize = 15.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+fun KidsBadge() {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = OpenStreamColors.AccentSoft,
+        border = BorderStroke(1.dp, OpenStreamColors.Accent.copy(alpha = 0.5f)),
+    ) {
+        Text(
+            "KIDS",
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 1.sp,
+            color = OpenStreamColors.Accent,
+        )
     }
 }

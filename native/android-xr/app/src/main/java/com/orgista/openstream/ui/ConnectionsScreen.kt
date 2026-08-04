@@ -38,6 +38,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.orgista.openstream.Logs
 import com.orgista.openstream.data.ConnectionStore
 import com.orgista.openstream.data.DiscoveredNas
@@ -224,7 +228,9 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                             scope.launch {
                                 discovered = NasDiscovery.discover(context)
                                 scanning = false
-                                if (discovered.isNullOrEmpty()) error = "No SMB servers announced themselves. Enter the host manually."
+                                if (discovered.isNullOrEmpty()) {
+                                    error = "No SMB servers found on this network. Make sure the tablet and NAS share the same Wi-Fi, then enter the host below."
+                                }
                             }
                         },
                         enabled = !scanning,
@@ -258,18 +264,29 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                         }
                     }
                 }
-                OutlinedTextField(value = host, onValueChange = { host = it.trim(); shares = null }, singleLine = true, label = { Text("Host or IP") })
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it.trim(); shares = null },
+                    singleLine = true,
+                    label = { Text("Host or IP") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, autoCorrectEnabled = false),
+                )
                 OutlinedTextField(value = username, onValueChange = { username = it.trim(); shares = null }, singleLine = true, label = { Text("Username (blank = guest)") })
-                OutlinedTextField(value = password, onValueChange = { password = it; shares = null }, singleLine = true, label = { Text("Password") })
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it; shares = null },
+                    singleLine = true,
+                    label = { Text("Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done, autoCorrectEnabled = false),
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = {
                             listingShares = true
                             error = null
                             scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching { NasDiscovery.listShares(host, username, password) }
-                                }
+                                val result = runCatching { NasDiscovery.listShares(host, username, password) }
                                 listingShares = false
                                 result.fold(
                                     onSuccess = { shares = it; if (it.isEmpty()) error = "The server exposed no browseable shares." },
@@ -364,6 +381,7 @@ private fun AddAddonDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                     singleLine = true,
                     label = { Text("Manifest URL") },
                     placeholder = { Text("https://addon.example/manifest.json") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done, autoCorrectEnabled = false),
                 )
                 if (error != null) Text(error!!, color = OpenStreamColors.Danger, fontSize = 13.sp)
             }
