@@ -79,10 +79,19 @@ fun SettingsScreen(
             color = OpenStreamColors.Text,
         )
 
-        Panel("Metadata (TMDB)") {
+        fun saveKeys() {
+            libraryStore.tmdbApiKey = tmdbKey
+            libraryStore.omdbApiKey = omdbKey
+            savedKey = tmdbKey
+            savedOmdb = omdbKey
+            onTmdbKeyChanged()
+        }
+        val dirty = tmdbKey != savedKey || omdbKey != savedOmdb
+
+        Panel("Artwork & descriptions (TMDB)") {
             Text(
                 if (savedKey.isBlank()) "Add a free TMDB API key to fetch posters, backdrops, and descriptions for your libraries."
-                else "Posters and descriptions are enabled. Libraries re-scan when you change this key.",
+                else "Posters and descriptions are enabled.",
                 fontSize = 13.sp,
                 color = OpenStreamColors.Muted,
             )
@@ -98,38 +107,56 @@ fun SettingsScreen(
                     unfocusedBorderColor = OpenStreamColors.Border,
                 ),
             )
+        }
+
+        Panel("Ratings · Rotten Tomatoes, IMDb & Metacritic") {
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (savedOmdb.isBlank()) AppIcons.Warning else AppIcons.Check,
+                    contentDescription = null,
+                    tint = if (savedOmdb.isBlank()) OpenStreamColors.Muted else OpenStreamColors.Green,
+                    modifier = Modifier.size(17.dp),
+                )
+                Text(
+                    if (savedOmdb.isBlank()) "Rotten Tomatoes scores are off." else "🍅 Rotten Tomatoes scores are on.",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OpenStreamColors.Text,
+                )
+            }
             Text(
-                "OMDb key (optional) adds Rotten Tomatoes, Metacritic, and IMDb scores on the details screen.",
+                "Rotten Tomatoes has no public API of its own. Like Infuse and Jellyfin, OpenStream reads RT — plus IMDb and Metacritic — through OMDb, the free aggregator. Paste your OMDb key below and the scores appear on each title.",
                 fontSize = 13.sp,
                 color = OpenStreamColors.Muted,
+                lineHeight = 19.sp,
             )
             androidx.compose.material3.OutlinedTextField(
                 value = omdbKey,
                 onValueChange = { omdbKey = it.trim() },
                 singleLine = true,
-                label = { Text("OMDb API key") },
-                placeholder = { Text("omdbapi.com → free API key") },
+                label = { Text("Rotten Tomatoes / OMDb key") },
+                placeholder = { Text("omdbapi.com/apikey.aspx — free") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = OpenStreamColors.Accent.copy(alpha = 0.6f),
                     unfocusedBorderColor = OpenStreamColors.Border,
                 ),
             )
-            androidx.compose.material3.Button(
-                onClick = {
-                    libraryStore.tmdbApiKey = tmdbKey
-                    libraryStore.omdbApiKey = omdbKey
-                    savedKey = tmdbKey
-                    savedOmdb = omdbKey
-                    onTmdbKeyChanged()
-                },
-                enabled = tmdbKey != savedKey || omdbKey != savedOmdb,
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    containerColor = OpenStreamColors.Accent,
-                    contentColor = OpenStreamColors.CanvasDeep,
-                ),
-            ) { Text(if (savedKey.isBlank()) "Save & scan" else "Update & re-scan") }
+            Text(
+                "Get a free key: omdbapi.com → API Key → FREE (1,000/day). They email it; paste it here.",
+                fontSize = 12.sp,
+                color = OpenStreamColors.Muted,
+            )
         }
+
+        androidx.compose.material3.Button(
+            onClick = { saveKeys() },
+            enabled = dirty,
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = OpenStreamColors.Accent,
+                contentColor = OpenStreamColors.CanvasDeep,
+            ),
+        ) { Text(if (savedKey.isBlank() && savedOmdb.isBlank()) "Save & scan" else "Update & re-scan") }
 
         Panel("Family & content") {
             when (policy) {
