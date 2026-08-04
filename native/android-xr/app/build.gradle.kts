@@ -24,6 +24,12 @@ android {
             "WEB_XR_URL",
             "\"https://openstream.orgista.com/xr/viewer\""
         )
+
+        // FFmpeg software decoders ship native libs per ABI; the target
+        // devices are 64-bit ARM, so ship only that to keep the APK lean.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildFeatures {
@@ -44,7 +50,10 @@ android {
 }
 
 dependencies {
-    val media3Version = "1.10.1"
+    // Pinned to 1.10.0 to exactly match the NextLib FFmpeg extension build
+    // (its version scheme is <media3>-<nextlib>), guaranteeing decoder ABI
+    // compatibility.
+    val media3Version = "1.10.0"
 
     implementation(platform("androidx.compose:compose-bom:2025.09.00"))
     implementation("androidx.compose.ui:ui")
@@ -57,6 +66,12 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
+
+    // FFmpeg software decoders for Media3 (the Jellyfin/Findroid approach):
+    // decode codecs the hardware can't — TrueHD, DTS, E-AC3, FLAC, etc. — on
+    // device in real time. This is Infuse's model: direct play with a
+    // software-decode fallback, not server-style re-encoding.
+    implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.0-0.12.1")
 
     // Pure-Java SMB2/3 client for direct NAS access; no gateway required.
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")

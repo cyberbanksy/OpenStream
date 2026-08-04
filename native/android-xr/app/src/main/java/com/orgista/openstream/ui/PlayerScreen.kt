@@ -70,7 +70,16 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
         } else {
             android.net.Uri.parse(request.uri)
         }
-        ExoPlayer.Builder(context)
+        // Hardware decoders first — this preserves Dolby Vision video and
+        // Dolby Atmos (TrueHD/E-AC3) passthrough that this device supports
+        // natively — with the FFmpeg software decoders as a *fallback* only
+        // for codecs the hardware can't handle. MODE_ON = hardware first,
+        // extension fallback (not MODE_PREFER, which would force software and
+        // lose Atmos/DV). This is the Infuse/Jellyfin behaviour.
+        val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory(context)
+            .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            .setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
             .apply {
