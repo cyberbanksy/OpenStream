@@ -1,0 +1,187 @@
+package com.orgista.openstream.ui
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.orgista.openstream.data.MediaItem
+
+/** Filled pill action — the single primary action style across the app. */
+@Composable
+fun PillButton(
+    label: String,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    prominent: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(50),
+        color = when {
+            !enabled -> OpenStreamColors.SurfaceRaised
+            prominent -> Color(0xFFF5F8F9)
+            else -> Color.Transparent
+        },
+        border = if (prominent) null else BorderStroke(1.dp, OpenStreamColors.Border),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val contentColor = when {
+                !enabled -> OpenStreamColors.Muted
+                prominent -> Color(0xFF071014)
+                else -> OpenStreamColors.Text
+            }
+            if (icon != null) Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(19.dp))
+            Text(label, color = contentColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        }
+    }
+}
+
+/** Small uppercase section header used across browse surfaces. */
+@Composable
+fun SectionHeader(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(),
+        modifier = modifier,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = 1.4.sp,
+        color = OpenStreamColors.Muted,
+    )
+}
+
+@Composable
+fun RatingChip(rating: String, modifier: Modifier = Modifier) {
+    if (rating.isBlank()) return
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(4.dp),
+        color = Color(0xB3060A0D),
+        border = BorderStroke(1.dp, Color(0x38FFFFFF)),
+    ) {
+        Text(
+            rating,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.6.sp,
+            color = OpenStreamColors.TextSoft,
+        )
+    }
+}
+
+/**
+ * Poster card: artwork with the title set inside over a scrim, so grids read
+ * as a wall of art instead of labeled boxes.
+ */
+@Composable
+fun MediaCard(item: MediaItem, width: Dp, onOpen: (MediaItem) -> Unit) {
+    Surface(
+        onClick = { onOpen(item) },
+        modifier = Modifier.width(width),
+        shape = RoundedCornerShape(12.dp),
+        color = OpenStreamColors.Surface,
+        border = BorderStroke(1.dp, Color(0x14E6F0F5)),
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
+            if (item.artRes != null) {
+                Image(
+                    painter = painterResource(item.artRes),
+                    contentDescription = item.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0.45f to Color.Transparent,
+                        1f to Color(0xF2060A0D),
+                    ),
+                ),
+            )
+            RatingChip(item.rating, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 11.dp, vertical = 10.dp)) {
+                Text(
+                    item.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OpenStreamColors.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    item.subtitle ?: "${item.year}",
+                    fontSize = 11.sp,
+                    color = OpenStreamColors.Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (item.progressPercent != null) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(item.progressPercent / 100f)
+                        .height(3.dp)
+                        .background(OpenStreamColors.Cyan),
+                )
+            }
+        }
+    }
+}
+
+/** Dot-separated metadata line: `2025 · PG-13 · 2h 07m · 4K Dolby Vision`. */
+@Composable
+fun MetaRow(item: MediaItem, includeFormat: Boolean = true) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("${item.year}", color = OpenStreamColors.TextSoft, fontSize = 15.sp)
+        Dot()
+        RatingChip(item.rating)
+        if (item.rating.isNotBlank()) Dot()
+        Text(formatRuntime(item.runtimeMinutes), color = OpenStreamColors.TextSoft, fontSize = 15.sp)
+        if (includeFormat) {
+            item.candidates.firstOrNull()?.let { candidate ->
+                Dot()
+                Text(candidate.formatLabel, color = OpenStreamColors.Muted, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Dot() {
+    Text("·", color = OpenStreamColors.Muted, fontSize = 15.sp)
+}

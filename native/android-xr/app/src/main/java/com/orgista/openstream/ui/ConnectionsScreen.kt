@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,8 +38,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.orgista.openstream.Logs
 import com.orgista.openstream.data.ConnectionStore
+import com.orgista.openstream.data.DiscoveredNas
 import com.orgista.openstream.data.NasConnection
+import com.orgista.openstream.data.NasDiscovery
 import com.orgista.openstream.data.NasEntry
 import com.orgista.openstream.data.Smb
 import com.orgista.openstream.data.StremioClient
@@ -86,7 +92,7 @@ fun ConnectionsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("Connections", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
+                    Text("Sources", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
                     Text("NAS shares stream directly over SMB; add-ons resolve HTTPS streams.", fontSize = 13.sp, color = OpenStreamColors.Muted)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -187,6 +193,7 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
@@ -194,20 +201,115 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var checking by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
+    var listingShares by remember { mutableStateOf(false) }
+    var discovered by remember { mutableStateOf<List<DiscoveredNas>?>(null) }
+    var shares by remember { mutableStateOf<List<String>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = { if (!checking) onDone(false) },
         title = { Text("Add a NAS share") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Name (optional)") })
-                OutlinedTextField(value = host, onValueChange = { host = it.trim() }, singleLine = true, label = { Text("Host or IP") })
+          Column {
+            Column(
+                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            scanning = true
+                            error = null
+                            scope.launch {
+                                discovered = NasDiscovery.discover(context)
+                                scanning = false
+                                if (discovered.isNullOrEmpty()) error = "No SMB servers announced themselves. Enter the host manually."
+                            }
+                        },
+                        enabled = !scanning,
+                    ) {
+                        if (scanning) {
+                            CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 2.dp)
+                            Text("  Scanning network…")
+                        } else {
+                            Text("Scan for servers")
+                        }
+                    }
+                }
+                val found = discovered
+                if (!found.isNullOrEmpty()) {
+                    found.forEach { server ->
+                        Surface(
+                            onClick = {
+                                host = server.host
+                                if (name.isBlank()) name = server.name
+                                shares = null
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (host == server.host) OpenStreamColors.SurfaceRaised else OpenStreamColors.Surface,
+                            border = BorderStroke(1.dp, if (host == server.host) OpenStreamColors.Cyan.copy(alpha = 0.5f) else OpenStreamColors.Border),
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(AppIcons.Storage, contentDescription = null, tint = OpenStreamColors.Cyan, modifier = Modifier.size(17.dp))
+                                Text(server.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text, fontSize = 14.sp)
+                                Text(server.host, color = OpenStreamColors.Muted, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(value = host, onValueChange = { host = it.trim(); shares = null }, singleLine = true, label = { Text("Host or IP") })
+                OutlinedTextField(value = username, onValueChange = { username = it.trim(); shares = null }, singleLine = true, label = { Text("Username (blank = guest)") })
+                OutlinedTextField(value = password, onValueChange = { password = it; shares = null }, singleLine = true, label = { Text("Password") })
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            listingShares = true
+                            error = null
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching { NasDiscovery.listShares(host, username, password) }
+                                }
+                                listingShares = false
+                                result.fold(
+                                    onSuccess = { shares = it; if (it.isEmpty()) error = "The server exposed no browseable shares." },
+                                    onFailure = { error = it.message ?: "The shares could not be listed." },
+                                )
+                            }
+                        },
+                        enabled = !listingShares && host.isNotBlank(),
+                    ) {
+                        if (listingShares) {
+                            CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 2.dp)
+                            Text("  Listing shares…")
+                        } else {
+                            Text("List shares")
+                        }
+                    }
+                }
+                val shareOptions = shares
+                if (!shareOptions.isNullOrEmpty()) {
+                    shareOptions.forEach { option ->
+                        Surface(
+                            onClick = { share = option },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (share == option) OpenStreamColors.SurfaceRaised else OpenStreamColors.Surface,
+                            border = BorderStroke(1.dp, if (share == option) OpenStreamColors.Cyan.copy(alpha = 0.5f) else OpenStreamColors.Border),
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(AppIcons.Folder, contentDescription = null, tint = OpenStreamColors.Muted, modifier = Modifier.size(16.dp))
+                                Text(option, color = OpenStreamColors.Text, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
                 OutlinedTextField(value = share, onValueChange = { share = it.trim() }, singleLine = true, label = { Text("Share name") })
-                OutlinedTextField(value = username, onValueChange = { username = it.trim() }, singleLine = true, label = { Text("Username (blank = guest)") })
-                OutlinedTextField(value = password, onValueChange = { password = it }, singleLine = true, label = { Text("Password") })
-                if (error != null) Text(error!!, color = OpenStreamColors.Danger, fontSize = 13.sp)
+                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Display name (optional)") })
             }
+            if (error != null) {
+                Text(error!!, color = OpenStreamColors.Danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+            }
+          }
         },
         confirmButton = {
             Button(
@@ -222,8 +324,10 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                         checking = false
                         if (failure == null) {
                             store.addNas(name, host, share, username, password)
+                            Logs.event("nas connected: $host/$share")
                             onDone(true)
                         } else {
+                            Logs.warn("nas connect failed for $host/$share", failure)
                             error = failure.message ?: "The share could not be reached."
                         }
                     }

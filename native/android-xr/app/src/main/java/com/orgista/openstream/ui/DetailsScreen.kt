@@ -89,61 +89,41 @@ fun DetailsScreen(
         }
 
         Column(Modifier.padding(horizontal = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(item.title, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${item.year}", color = OpenStreamColors.TextSoft)
-                RatingChip(item.rating)
-                Text(formatRuntime(item.runtimeMinutes), color = OpenStreamColors.TextSoft)
-                if (item.subtitle != null) Text(item.subtitle, color = OpenStreamColors.Muted)
-            }
+            Text(item.title, fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
+            MetaRow(item, includeFormat = false)
+            if (item.subtitle != null) Text(item.subtitle, color = OpenStreamColors.Muted, fontSize = 14.sp)
             Text(item.synopsis, fontSize = 16.sp, lineHeight = 24.sp, color = OpenStreamColors.TextSoft)
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val first = item.candidates.firstOrNull()
-                Button(
-                    onClick = {
-                        if (first != null) {
-                            onPlay(PlaybackRequest(item.title, first.sourceName, first.uri))
-                        }
-                    },
-                    enabled = first != null,
-                ) {
-                    Icon(AppIcons.Play, contentDescription = null)
-                    Text(" Play", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                PillButton("Play", icon = AppIcons.Play, enabled = first != null) {
+                    if (first != null) {
+                        onPlay(PlaybackRequest(item.title, first.sourceName, first.uri))
+                    }
                 }
                 if (!kidsMode && addons.isNotEmpty() && item.imdbId != null) {
-                    OutlinedButton(
-                        onClick = {
-                            searching = true
-                            scope.launch {
-                                val type = if (item.kind == MediaKind.SERIES) "series" else "movie"
-                                val found = withContext(Dispatchers.IO) {
-                                    addons.flatMap { addon ->
-                                        runCatching { StremioClient.streamsFor(addon, type, item.imdbId) }
-                                            .getOrDefault(emptyList())
-                                    }
-                                }
-                                searching = false
-                                if (found.isEmpty()) {
-                                    Toast.makeText(context, "No add-on streams found", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    streamResults = found
+                    PillButton(if (searching) "Searching…" else "Search add-ons", prominent = false, enabled = !searching) {
+                        searching = true
+                        scope.launch {
+                            val type = if (item.kind == MediaKind.SERIES) "series" else "movie"
+                            val found = withContext(Dispatchers.IO) {
+                                addons.flatMap { addon ->
+                                    runCatching { StremioClient.streamsFor(addon, type, item.imdbId) }
+                                        .getOrDefault(emptyList())
                                 }
                             }
-                        },
-                        enabled = !searching,
-                    ) {
-                        if (searching) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text("  Searching…")
-                        } else {
-                            Text("Search add-ons")
+                            searching = false
+                            if (found.isEmpty()) {
+                                Toast.makeText(context, "No add-on streams found", Toast.LENGTH_SHORT).show()
+                            } else {
+                                streamResults = found
+                            }
                         }
                     }
                 }
             }
 
-            Text("Available routes", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Muted)
+            SectionHeader("Available routes")
             item.candidates.forEach { candidate ->
                 Surface(
                     onClick = { onPlay(PlaybackRequest(item.title, candidate.sourceName, candidate.uri)) },

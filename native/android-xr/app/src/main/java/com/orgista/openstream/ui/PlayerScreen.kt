@@ -1,5 +1,10 @@
 package com.orgista.openstream.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -30,16 +35,23 @@ import androidx.media3.datasource.RawResourceDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import com.orgista.openstream.Logs
 import com.orgista.openstream.R
 import com.orgista.openstream.data.DEMO_URI
 import com.orgista.openstream.player.SmbDataSource
 import com.orgista.openstream.ui.icons.AppIcons
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 /**
  * Native Media3 playback. SMB URIs stream through the jcifs-ng DataSource,
- * HTTP(S) and the bundled demo use the default sources. ExoPlayer's own
- * extractors handle MKV/MP4/TS with the device's hardware decoders — the
- * formats a browser engine can't touch.
+ * HTTP(S) and the bundled demo use the default sources. Only this screen is
+ * immersive; system bars come back the moment playback closes so the app
+ * never traps the viewer.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -68,9 +80,26 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
             }
     }
 
+    // Immersive video: hide system bars while this screen is up, restore on exit.
+    DisposableEffect(Unit) {
+        val insetsController = context.findActivity()?.window?.insetsController
+        insetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+        insetsController?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose {
+            insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+        }
+    }
+
     DisposableEffect(Unit) {
         val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    Logs.event("playback ready: ${request.title}")
+                }
+            }
+
             override fun onPlayerError(playbackError: PlaybackException) {
+                Logs.error("playback error for ${request.title}: ${playbackError.errorCodeName}", playbackError)
                 error = playbackError.errorCodeName
                     .removePrefix("ERROR_CODE_")
                     .replace('_', ' ')
@@ -79,6 +108,7 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
         }
         player.addListener(listener)
         onDispose {
+            Logs.event("playback closed: ${request.title}")
             player.removeListener(listener)
             player.release()
         }

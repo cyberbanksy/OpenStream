@@ -6,13 +6,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -21,9 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -53,73 +51,6 @@ fun formatRuntime(minutes: Int): String {
 }
 
 @Composable
-fun RatingChip(rating: String, modifier: Modifier = Modifier) {
-    if (rating.isBlank()) return
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(5.dp),
-        color = Color(0xC704080A),
-        border = BorderStroke(1.dp, Color(0x47FFFFFF)),
-    ) {
-        Text(
-            rating,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = OpenStreamColors.TextSoft,
-        )
-    }
-}
-
-@Composable
-fun MediaCard(item: MediaItem, width: androidx.compose.ui.unit.Dp, onOpen: (MediaItem) -> Unit) {
-    Column(Modifier.width(width)) {
-        Surface(
-            onClick = { onOpen(item) },
-            shape = RoundedCornerShape(10.dp),
-            color = OpenStreamColors.Surface,
-        ) {
-            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-                if (item.artRes != null) {
-                    Image(
-                        painter = painterResource(item.artRes),
-                        contentDescription = item.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                RatingChip(item.rating, Modifier.align(Alignment.TopEnd).padding(8.dp))
-                if (item.progressPercent != null) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth(item.progressPercent / 100f)
-                            .height(4.dp)
-                            .background(OpenStreamColors.Cyan),
-                    )
-                }
-            }
-        }
-        Text(
-            item.title,
-            modifier = Modifier.padding(top = 8.dp),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            color = OpenStreamColors.Text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            item.subtitle ?: "${item.year}",
-            fontSize = 12.sp,
-            color = OpenStreamColors.Muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
 fun DiscoverScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
     if (catalog.isEmpty()) {
         EmptyCatalog()
@@ -128,92 +59,90 @@ fun DiscoverScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
     var featured by remember(catalog) { mutableStateOf(catalog.first()) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Box(Modifier.fillMaxWidth().height(340.dp)) {
+        Box(Modifier.fillMaxWidth().height(400.dp)) {
             if (featured.artRes != null) {
                 Image(
                     painter = painterResource(featured.artRes!!),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
                 )
             }
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(
                         0f to OpenStreamColors.Canvas,
-                        0.55f to OpenStreamColors.Canvas.copy(alpha = 0.55f),
+                        0.5f to OpenStreamColors.Canvas.copy(alpha = 0.62f),
                         1f to Color.Transparent,
                     ),
                 ),
             )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0.55f to Color.Transparent,
+                        1f to OpenStreamColors.Canvas,
+                    ),
+                ),
+            )
             Column(
-                Modifier.align(Alignment.CenterStart).padding(horizontal = 28.dp).fillMaxWidth(0.62f),
-                verticalArrangement = Arrangement.spacedBy(9.dp),
+                Modifier.align(Alignment.CenterStart).padding(start = 34.dp, end = 34.dp, top = 20.dp).fillMaxWidth(0.6f),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 Text(
                     if (featured.kind == MediaKind.SERIES) "SERIES" else "FEATURE",
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 3.sp,
                     color = OpenStreamColors.Coral,
                 )
-                Text(featured.title, fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text, lineHeight = 44.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${featured.year}", color = OpenStreamColors.TextSoft, fontSize = 15.sp)
-                    RatingChip(featured.rating)
-                    Text(formatRuntime(featured.runtimeMinutes), color = OpenStreamColors.TextSoft, fontSize = 15.sp)
-                    Text(featured.candidates.firstOrNull()?.formatLabel ?: "", color = OpenStreamColors.Muted, fontSize = 14.sp)
-                }
+                Text(
+                    featured.title,
+                    fontSize = 46.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = OpenStreamColors.Text,
+                    lineHeight = 50.sp,
+                )
+                MetaRow(featured)
                 Text(
                     featured.synopsis,
                     fontSize = 15.sp,
                     color = OpenStreamColors.TextSoft,
                     lineHeight = 22.sp,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Button(onClick = { onOpen(featured) }) {
-                    Icon(AppIcons.Play, contentDescription = null)
-                    Text(" Open", fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PillButton("Play", icon = AppIcons.Play) { onOpen(featured) }
+                    PillButton("Details", prominent = false) { onOpen(featured) }
                 }
             }
         }
 
-        Text(
-            "Continue watching",
-            modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 12.dp),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = OpenStreamColors.Text,
-        )
-        LazyRow(
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 28.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            items(catalog.filter { it.progressPercent != null }.ifEmpty { catalog }, key = { it.id }) { item ->
-                Box(Modifier.clip(RoundedCornerShape(10.dp))) {
-                    MediaCard(item, width = 150.dp) {
-                        featured = it
-                        onOpen(it)
-                    }
-                }
+        val continueWatching = catalog.filter { it.progressPercent != null }
+        if (continueWatching.isNotEmpty()) {
+            SectionHeader("Continue watching", Modifier.padding(start = 34.dp, top = 8.dp, bottom = 12.dp))
+            MediaRail(continueWatching) { item ->
+                featured = item
+                onOpen(item)
             }
         }
 
-        Text(
-            "All titles",
-            modifier = Modifier.padding(start = 28.dp, top = 22.dp, bottom = 12.dp),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = OpenStreamColors.Text,
-        )
-        LazyRow(
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 28.dp, vertical = 0.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.padding(bottom = 20.dp),
-        ) {
-            items(catalog, key = { "all-${it.id}" }) { item ->
-                MediaCard(item, width = 150.dp, onOpen = onOpen)
-            }
+        SectionHeader("All titles", Modifier.padding(start = 34.dp, top = 24.dp, bottom = 12.dp))
+        MediaRail(catalog, keyPrefix = "all-") { item -> onOpen(item) }
+        Box(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun MediaRail(items: List<MediaItem>, keyPrefix: String = "", onOpen: (MediaItem) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 34.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        items(items, key = { "$keyPrefix${it.id}" }) { item ->
+            MediaCard(item, width = 156.dp, onOpen = onOpen)
         }
     }
 }
@@ -223,24 +152,30 @@ fun LibraryScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
     var filter by remember { mutableStateOf<MediaKind?>(null) }
     val items = remember(catalog, filter) { catalog.filter { filter == null || it.kind == filter } }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp)) {
         Row(
-            modifier = Modifier.padding(vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(top = 24.dp, bottom = 6.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            FilterPill("All", filter == null) { filter = null }
-            FilterPill("Movies", filter == MediaKind.MOVIE) { filter = MediaKind.MOVIE }
-            FilterPill("Series", filter == MediaKind.SERIES) { filter = MediaKind.SERIES }
+            Column {
+                Text("Library", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
+                Text("${items.size} titles from connected sources", color = OpenStreamColors.Muted, fontSize = 13.sp)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                FilterPill("All", filter == null) { filter = null }
+                FilterPill("Movies", filter == MediaKind.MOVIE) { filter = MediaKind.MOVIE }
+                FilterPill("Series", filter == MediaKind.SERIES) { filter = MediaKind.SERIES }
+            }
         }
-        Text("${items.size} titles from connected sources", color = OpenStreamColors.Muted, fontSize = 13.sp)
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 140.dp),
+            columns = GridCells.Adaptive(minSize = 150.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 18.dp),
         ) {
             items(items, key = { it.id }) { item ->
-                MediaCard(item, width = 150.dp, onOpen = onOpen)
+                MediaCard(item, width = 156.dp, onOpen = onOpen)
             }
         }
     }
@@ -255,29 +190,34 @@ fun SearchScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
         else catalog.filter { "${it.title} ${it.synopsis}".lowercase().contains(normalized) }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp)) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
             singleLine = true,
-            placeholder = { Text("Search titles across every connected source") },
-            leadingIcon = { Icon(AppIcons.Search, contentDescription = null) },
+            shape = RoundedCornerShape(12.dp),
+            placeholder = { Text("Search titles across every connected source", color = OpenStreamColors.Muted) },
+            leadingIcon = { Icon(AppIcons.Search, contentDescription = null, tint = OpenStreamColors.Muted) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = OpenStreamColors.Cyan.copy(alpha = 0.6f),
+                unfocusedBorderColor = OpenStreamColors.Border,
+            ),
         )
         Text(
             "${results.size} matches",
-            modifier = Modifier.padding(vertical = 10.dp),
+            modifier = Modifier.padding(vertical = 12.dp),
             color = OpenStreamColors.Muted,
             fontSize = 13.sp,
         )
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 140.dp),
+            columns = GridCells.Adaptive(minSize = 150.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 18.dp),
         ) {
             items(results, key = { it.id }) { item ->
-                MediaCard(item, width = 150.dp, onOpen = onOpen)
+                MediaCard(item, width = 156.dp, onOpen = onOpen)
             }
         }
     }
@@ -293,9 +233,9 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             label,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 7.dp),
             color = if (selected) OpenStreamColors.Cyan else OpenStreamColors.TextSoft,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
         )
     }
