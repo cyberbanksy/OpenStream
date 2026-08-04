@@ -1,32 +1,44 @@
-# OpenStream Android XR
+# OpenStream Android
 
-This module is the universal Android media target for Android TV, standard Android,
-Android XR headsets, Samsung Android XR devices, and Meta Quest compatibility.
+The native Android app: Kotlin + Jetpack Compose UI over the Media3 playback
+engine. This is the product on Android — no web runtime.
 
-## Implemented
+## What it does
 
-- Media3 1.10.1 playback for local, HLS, and DASH media.
-- Android 17 API 37.1 compilation with Android Gradle Plugin 9.3.0.
-- Runtime display and decoder probing for HDR10, HDR10+, HLG, Dolby Vision,
-  HEVC Main10, and AV1 Main10.
-- Dolby Vision codec-string profile and level inspection without claiming a
-  device supports a profile that its decoder does not advertise.
-- Optional OpenXR 1.1 and 6DoF feature declarations so the universal APK remains
-  installable in 2D compatibility mode.
-- Standards-based WebXR handoff for immersive 180/360 playback on compatible
-  headset browsers.
-- HTTPS-only release networking and no Android backup of connection data.
+- First-run onboarding with **irreversible Kids Mode**: a rating cap
+  (Little kids / Big kids / Teens), a guardian blocklist, and an explicit
+  cannot-be-reverted confirmation. The lock lives in app data; deleting or
+  editing the stored profile fails closed to the strictest cap, and the only
+  reset is uninstalling the app. Unrated content never plays in Kids Mode.
+- Discover / Library / Search / Details with rating chips everywhere.
+- **Direct SMB NAS playback** (jcifs-ng SMB2/3 → custom Media3 DataSource with
+  seeking). ExoPlayer's extractors and the device's hardware decoders handle
+  MKV/MP4/TS, HEVC and AV1 — no gateway, no transcoding for anything the
+  device can decode.
+- **Stremio add-ons**: validate a manifest, resolve direct HTTPS streams per
+  title, play them natively.
+- Settings surface real decoder/display probes (HDR10/HDR10+/HLG/Dolby
+  Vision, HEVC/AV1 Main10) from the Media3 probe module.
 
-The native OpenXR renderer is intentionally a separate product flavor: a 2D
-Media3 surface cannot become a conforming stereoscopic OpenXR compositor layer.
-Until that flavor is linked against a headset runtime and validated on hardware,
-the app reports immersive playback as unavailable instead of silently showing a
-flat panel.
+The Media3 capability probe/demo remains available at
+`.MainActivity` (explicit intent only); the launcher is `.NativeAppActivity`.
 
 ## Build and test
 
 ```sh
-JAVA_HOME=$(/usr/libexec/java_home -v 17) gradle -p native/android-xr test assembleDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 17) gradle test assembleDebug
 ```
 
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+On this workstation Gradle cannot run on the project volume — rsync the
+module to a local directory first (see the repo docs). The debug APK is
+written to `app/build/outputs/apk/debug/app-debug.apk` and a copy is kept at
+`dist/openstream-android-xr-debug.apk`.
+
+## Architecture notes
+
+- AGP 9 built-in Kotlin (no kotlin-android plugin) + Compose compiler plugin.
+- Dependencies are deliberately minimal: Compose BOM, activity-compose,
+  Media3, jcifs-ng. HTTP is HttpURLConnection + org.json; icons are the core
+  set plus two hand-drawn vectors.
+- Domain logic (`domain/`) mirrors the shared product rules (ratings,
+  content policy, profile lock) and is what the Swift/macOS target ports next.

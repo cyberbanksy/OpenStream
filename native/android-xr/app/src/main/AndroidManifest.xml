@@ -42,7 +42,7 @@
             android:value="XR_BOUNDARY_TYPE_LARGE" />
 
         <activity
-            android:name=".WebAppActivity"
+            android:name=".NativeAppActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true">
             <intent-filter>
