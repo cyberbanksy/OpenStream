@@ -17,6 +17,13 @@ data class MediaCandidate(
     val directPlay: Boolean = true,
 )
 
+/** Aggregated critic/audience scores, Infuse-style. Any may be null. */
+data class TitleRatings(
+    val imdb: String? = null,
+    val rottenTomatoes: String? = null,
+    val metacritic: String? = null,
+)
+
 data class MediaItem(
     val id: String,
     val kind: MediaKind,
@@ -32,8 +39,15 @@ data class MediaItem(
     val posterUrl: String? = null,
     val backdropUrl: String? = null,
     val imdbId: String? = null,
+    val tmdbId: Int? = null,
     val progressPercent: Int? = null,
     val candidates: List<MediaCandidate> = emptyList(),
     /** For series: the episodes grouped under this show, season-ordered. */
     val episodes: List<MediaItem> = emptyList(),
+    // Rich metadata, filled lazily when a title's details screen opens.
+    val genres: List<String> = emptyList(),
+    val cast: List<String> = emptyList(),
+    val director: String? = null,
+    val tagline: String? = null,
+    val ratings: TitleRatings? = null,
 )

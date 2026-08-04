@@ -64,6 +64,8 @@ fun SettingsScreen(
     val report = remember { HdrCapabilityProbe.inspect(context) }
     var tmdbKey by remember { mutableStateOf(libraryStore.tmdbApiKey) }
     var savedKey by remember { mutableStateOf(libraryStore.tmdbApiKey) }
+    var omdbKey by remember { mutableStateOf(libraryStore.omdbApiKey) }
+    var savedOmdb by remember { mutableStateOf(libraryStore.omdbApiKey) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
@@ -96,13 +98,32 @@ fun SettingsScreen(
                     unfocusedBorderColor = OpenStreamColors.Border,
                 ),
             )
+            Text(
+                "OMDb key (optional) adds Rotten Tomatoes, Metacritic, and IMDb scores on the details screen.",
+                fontSize = 13.sp,
+                color = OpenStreamColors.Muted,
+            )
+            androidx.compose.material3.OutlinedTextField(
+                value = omdbKey,
+                onValueChange = { omdbKey = it.trim() },
+                singleLine = true,
+                label = { Text("OMDb API key") },
+                placeholder = { Text("omdbapi.com → free API key") },
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = OpenStreamColors.Accent.copy(alpha = 0.6f),
+                    unfocusedBorderColor = OpenStreamColors.Border,
+                ),
+            )
             androidx.compose.material3.Button(
                 onClick = {
                     libraryStore.tmdbApiKey = tmdbKey
+                    libraryStore.omdbApiKey = omdbKey
                     savedKey = tmdbKey
+                    savedOmdb = omdbKey
                     onTmdbKeyChanged()
                 },
-                enabled = tmdbKey != savedKey,
+                enabled = tmdbKey != savedKey || omdbKey != savedOmdb,
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                     containerColor = OpenStreamColors.Accent,
                     contentColor = OpenStreamColors.CanvasDeep,

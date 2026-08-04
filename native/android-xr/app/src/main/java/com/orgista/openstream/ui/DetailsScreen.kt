@@ -57,6 +57,7 @@ fun DetailsScreen(
     item: MediaItem,
     kidsMode: Boolean,
     addons: List<StremioAddon>,
+    metadataLoader: com.orgista.openstream.library.MetadataLoader,
     onBack: () -> Unit,
     onPlay: (PlaybackRequest) -> Unit,
 ) {
@@ -64,6 +65,16 @@ fun DetailsScreen(
     val scope = rememberCoroutineScope()
     var streamResults by remember { mutableStateOf<List<StremioStream>?>(null) }
     var searching by remember { mutableStateOf(false) }
+
+    // Lazily fetch full metadata (genres, cast, RT/IMDb/Metacritic) for this
+    // one title when the screen opens — keeps the library scan fast.
+    var enriched by remember(item.id) { mutableStateOf(item) }
+    androidx.compose.runtime.LaunchedEffect(item.id) {
+        if (metadataLoader.active && item.tmdbId != null) {
+            runCatching { metadataLoader.enrich(item) }.getOrNull()?.let { enriched = it }
+        }
+    }
+    val item = enriched
 
     Column(Modifier.fillMaxSize().background(OpenStreamColors.Canvas).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(320.dp)) {
@@ -83,9 +94,38 @@ fun DetailsScreen(
 
         Column(Modifier.padding(horizontal = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.title, fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
+            if (item.tagline != null) {
+                Text(item.tagline, color = OpenStreamColors.Muted, fontSize = 15.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+            }
             MetaRow(item, includeFormat = false)
+
+            item.ratings?.let { ratings ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ratings.rottenTomatoes?.let { ScoreBadge("🍅", it, OpenStreamColors.Coral) }
+                    ratings.imdb?.let { ScoreBadge("IMDb", it, OpenStreamColors.Accent) }
+                    ratings.metacritic?.let { ScoreBadge("Metacritic", it, OpenStreamColors.TextSoft) }
+                }
+            }
+
+            if (item.genres.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item.genres.take(4).forEach { genre ->
+                        Surface(shape = RoundedCornerShape(50), color = OpenStreamColors.SurfaceRaised) {
+                            Text(genre, Modifier.padding(horizontal = 12.dp, vertical = 5.dp), fontSize = 12.sp, color = OpenStreamColors.TextSoft)
+                        }
+                    }
+                }
+            }
+
             if (item.subtitle != null) Text(item.subtitle, color = OpenStreamColors.Muted, fontSize = 14.sp)
             Text(item.synopsis, fontSize = 16.sp, lineHeight = 24.sp, color = OpenStreamColors.TextSoft)
+
+            if (item.director != null) {
+                Text("Director  ${item.director}", fontSize = 14.sp, color = OpenStreamColors.Muted)
+            }
+            if (item.cast.isNotEmpty()) {
+                Text("Cast  ${item.cast.take(5).joinToString(", ")}", fontSize = 14.sp, color = OpenStreamColors.Muted)
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val first = item.candidates.firstOrNull()
@@ -197,5 +237,23 @@ fun DetailsScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun ScoreBadge(label: String, value: String, accent: androidx.compose.ui.graphics.Color) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = OpenStreamColors.Surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, OpenStreamColors.Border),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = accent)
+            Text(value, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
+        }
     }
 }

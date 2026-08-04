@@ -177,6 +177,10 @@ fun OpenStreamApp(onExit: () -> Unit) {
                 item = current.item,
                 kidsMode = kidsMode,
                 addons = connectionStore.stremioAddons(),
+                metadataLoader = com.orgista.openstream.library.MetadataLoader(
+                    libraryStore.tmdbApiKey,
+                    libraryStore.omdbApiKey,
+                ),
                 onBack = { screen = lastTab },
                 onPlay = { request -> playGuarded(current.item, request) },
             )

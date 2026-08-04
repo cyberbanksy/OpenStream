@@ -117,6 +117,7 @@ object LibraryIndexer {
             runtimeMinutes = 0,
             posterUrl = Tmdb.posterUrl(meta?.posterPath),
             backdropUrl = Tmdb.backdropUrl(meta?.backdropPath),
+            tmdbId = meta?.tmdbId,
             candidates = listOf(candidate(connection, folder, entry)),
         )
     }
@@ -156,6 +157,7 @@ object LibraryIndexer {
             runtimeMinutes = 0,
             posterUrl = Tmdb.posterUrl(meta?.posterPath),
             backdropUrl = Tmdb.backdropUrl(meta?.backdropPath),
+            tmdbId = meta?.tmdbId,
             episodes = episodes,
             candidates = episodes.firstOrNull()?.candidates ?: emptyList(),
         )

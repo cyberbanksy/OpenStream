@@ -27,6 +27,10 @@ class LibraryStore(context: Context) {
         get() = prefs.getString(KEY_TMDB, "") ?: ""
         set(value) { prefs.edit().putString(KEY_TMDB, value.trim()).apply() }
 
+    var omdbApiKey: String
+        get() = prefs.getString(KEY_OMDB, "") ?: ""
+        set(value) { prefs.edit().putString(KEY_OMDB, value.trim()).apply() }
+
     fun folders(): List<LibraryFolder> {
         val raw = prefs.getString(KEY_FOLDERS, "[]") ?: "[]"
         return try {
@@ -72,5 +76,6 @@ class LibraryStore(context: Context) {
     private companion object {
         const val KEY_FOLDERS = "folders.v1"
         const val KEY_TMDB = "tmdbApiKey.v1"
+        const val KEY_OMDB = "omdbApiKey.v1"
     }
 }

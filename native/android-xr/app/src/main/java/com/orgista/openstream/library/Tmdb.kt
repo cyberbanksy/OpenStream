@@ -16,6 +16,17 @@ data class TmdbResult(
     val tmdbId: Int,
 )
 
+/** Full detail for a title, fetched lazily when its Details screen opens. */
+data class TmdbDetails(
+    val imdbId: String?,
+    val runtimeMinutes: Int,
+    val genres: List<String>,
+    val cast: List<String>,
+    val director: String?,
+    val tagline: String?,
+    val certification: String?,
+)
+
 /**
  * TMDB metadata client. A user-supplied v3 API key (Settings) unlocks posters,
  * backdrops, overviews, and certifications — the same source Infuse and
@@ -42,6 +53,72 @@ class Tmdb(private val apiKey: String) {
             URLEncoder.encode(title, "UTF-8")
         val first = firstResult(url) ?: return null
         return toResult(first, isMovie = false)
+    }
+
+    /** Movie detail with credits, IMDb id, and US certification in one call. */
+    fun movieDetails(tmdbId: Int): TmdbDetails? {
+        if (!enabled) return null
+        val json = getJson(
+            "https://api.themoviedb.org/3/movie/$tmdbId?api_key=$apiKey" +
+                "&append_to_response=credits,release_dates",
+        ) ?: return null
+        val cert = usCertification(json.optJSONObject("release_dates"), "movie")
+        return toDetails(json, json.optString("imdb_id").takeIf { it.isNotBlank() }, cert)
+    }
+
+    fun showDetails(tmdbId: Int): TmdbDetails? {
+        if (!enabled) return null
+        val json = getJson(
+            "https://api.themoviedb.org/3/tv/$tmdbId?api_key=$apiKey" +
+                "&append_to_response=credits,external_ids,content_ratings",
+        ) ?: return null
+        val imdb = json.optJSONObject("external_ids")?.optString("imdb_id")?.takeIf { it.isNotBlank() }
+        val cert = usCertification(json.optJSONObject("content_ratings"), "tv")
+        return toDetails(json, imdb, cert)
+    }
+
+    private fun toDetails(json: JSONObject, imdbId: String?, cert: String?): TmdbDetails {
+        val genres = json.optJSONArray("genres")?.let { array ->
+            (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf { n -> n.isNotBlank() } }
+        } ?: emptyList()
+        val credits = json.optJSONObject("credits")
+        val castArray = credits?.optJSONArray("cast")
+        val cast = castArray?.let { array ->
+            (0 until minOf(array.length(), 10)).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf { n -> n.isNotBlank() } }
+        } ?: emptyList()
+        val director = credits?.optJSONArray("crew")?.let { array ->
+            (0 until array.length()).map { array.optJSONObject(it) }
+                .firstOrNull { it?.optString("job") == "Director" }?.optString("name")
+        }?.takeIf { it.isNotBlank() }
+        val runtime = json.optInt("runtime", 0).takeIf { it > 0 }
+            ?: json.optJSONArray("episode_run_time")?.optInt(0, 0) ?: 0
+        return TmdbDetails(
+            imdbId = imdbId,
+            runtimeMinutes = runtime,
+            genres = genres,
+            cast = cast,
+            director = director,
+            tagline = json.optString("tagline").takeIf { it.isNotBlank() },
+            certification = cert,
+        )
+    }
+
+    private fun usCertification(container: JSONObject?, type: String): String? {
+        val results = container?.optJSONArray("results") ?: return null
+        for (index in 0 until results.length()) {
+            val entry = results.optJSONObject(index) ?: continue
+            val country = entry.optString("iso_3166_1")
+            if (country != "US") continue
+            return if (type == "movie") {
+                val releases = entry.optJSONArray("release_dates") ?: continue
+                (0 until releases.length())
+                    .mapNotNull { releases.optJSONObject(it)?.optString("certification") }
+                    .firstOrNull { it.isNotBlank() }
+            } else {
+                entry.optString("rating").takeIf { it.isNotBlank() }
+            }
+        }
+        return null
     }
 
     private fun firstResult(url: String): JSONObject? {
