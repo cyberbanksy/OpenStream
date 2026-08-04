@@ -83,9 +83,14 @@ fun OpenStreamApp(onExit: () -> Unit) {
     val connectionStore = remember { ConnectionStore(context.applicationContext) }
     val libraryStore = remember { LibraryStore(context.applicationContext) }
     var policy by remember { mutableStateOf(profileStore.loadActivePolicy()) }
-    var indexed by remember { mutableStateOf<IndexedLibrary?>(null) }
+    // Load the last scan from disk immediately so the real catalog shows on the
+    // first frame instead of the demo placeholder; the scan below refreshes it.
+    var indexed by remember {
+        mutableStateOf(com.orgista.openstream.library.LibraryCache.load(context.applicationContext))
+    }
     var indexing by remember { mutableStateOf(false) }
     var libraryRevision by remember { mutableIntStateOf(0) }
+    val hasLibraries = remember(libraryRevision) { libraryStore.folders().isNotEmpty() }
 
     // Scan every added folder library, parse filenames, and (if a TMDB key is
     // set) enrich with posters — off the main thread. Re-runs when a folder is
@@ -107,10 +112,12 @@ fun OpenStreamApp(onExit: () -> Unit) {
             movies += result.movies
             shows += result.shows
         }
-        indexed = IndexedLibrary(
+        val result = IndexedLibrary(
             movies.sortedBy { it.title.lowercase() },
             shows.sortedBy { it.title.lowercase() },
         )
+        indexed = result
+        com.orgista.openstream.library.LibraryCache.save(context.applicationContext, result)
         indexing = false
     }
 
@@ -130,10 +137,15 @@ fun OpenStreamApp(onExit: () -> Unit) {
     }
 
     val kidsMode = activePolicy is ContentPolicy.Kids
-    // Real library content once folders are indexed; the demo catalog until then.
+    // Real library content when folders exist (from cache instantly, then the
+    // fresh scan); the demo catalog only when no libraries are configured.
     val library = indexed
-    val catalog = remember(activePolicy, library) {
-        val base = if (library != null && !library.isEmpty) library.all else demoCatalog
+    val catalog = remember(activePolicy, library, hasLibraries) {
+        val base = when {
+            library != null && !library.isEmpty -> library.all
+            hasLibraries -> emptyList() // configured but first scan not done yet
+            else -> demoCatalog
+        }
         filterCatalog(base, activePolicy)
     }
     var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
@@ -231,6 +243,10 @@ fun OpenStreamApp(onExit: () -> Unit) {
                     },
                     onRemoveLibrary = { id ->
                         libraryStore.removeFolder(id)
+                        if (libraryStore.folders().isEmpty()) {
+                            com.orgista.openstream.library.LibraryCache.clear(context.applicationContext)
+                            indexed = null
+                        }
                         libraryRevision++
                     },
                     onPlayNas = { connection, entry ->

@@ -22,12 +22,39 @@ class NativeAppActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Logs.event("app started")
+        applyKeyExtras()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             OpenStreamTheme {
                 OpenStreamApp(onExit = { finish() })
             }
         }
+    }
+
+    /**
+     * Debug convenience: set the TMDB/OMDb keys from adb instead of typing them
+     * on the tablet, e.g.
+     *   adb shell am start -n com.orgista.openstream/.NativeAppActivity \
+     *     -e tmdbKey <TMDB> -e omdbKey <OMDB>
+     * Only honored in debuggable builds.
+     */
+    private fun applyKeyExtras() {
+        val debuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!debuggable) return
+        val store = com.orgista.openstream.library.LibraryStore(applicationContext)
+        var changed = false
+        intent?.getStringExtra("tmdbKey")?.let { store.tmdbApiKey = it; changed = true }
+        intent?.getStringExtra("omdbKey")?.let { store.omdbApiKey = it; changed = true }
+        if (changed) {
+            com.orgista.openstream.library.LibraryCache.clear(applicationContext)
+            Logs.event("api keys set via intent extras; cache cleared for re-scan")
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyKeyExtras()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
