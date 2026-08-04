@@ -66,4 +66,32 @@ object Smb {
             if (!root.exists()) throw IllegalStateException("The share was reachable but does not exist.")
         }
     }
+
+    /** True when a failure means the named share does not exist on the server. */
+    fun isMissingShareError(error: Throwable?): Boolean {
+        val message = error?.message?.lowercase() ?: return false
+        return "network name" in message || "cannot be found" in message || "0xc00000cc" in message
+    }
+
+    /**
+     * Turns raw jcifs/SMB exceptions into plain, actionable guidance. The
+     * `share` argument names what the user tried to reach so the message can
+     * be specific.
+     */
+    fun friendlyError(error: Throwable?, share: String): String {
+        val message = error?.message ?: return "The NAS share could not be reached."
+        val lower = message.lowercase()
+        return when {
+            isMissingShareError(error) ->
+                "No share named “$share” on this server. Tap “List shares” and pick one."
+            "access is denied" in lower || "logon failure" in lower || "0xc000006d" in lower ->
+                "The username or password was rejected for this share."
+            "failed to connect" in lower || "connection refused" in lower || "timed out" in lower ||
+                "econnrefused" in lower || "unreachable" in lower ->
+                "Couldn’t reach the server. Check it’s powered on and on the same Wi‑Fi."
+            "unknown host" in lower ->
+                "That host name could not be found on the network."
+            else -> message
+        }
+    }
 }

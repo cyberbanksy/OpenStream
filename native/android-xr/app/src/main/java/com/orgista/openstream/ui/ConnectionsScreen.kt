@@ -290,7 +290,7 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                                 listingShares = false
                                 result.fold(
                                     onSuccess = { shares = it; if (it.isEmpty()) error = "The server exposed no browseable shares." },
-                                    onFailure = { error = it.message ?: "The shares could not be listed." },
+                                    onFailure = { error = Smb.friendlyError(it, share) },
                                 )
                             }
                         },
@@ -338,14 +338,27 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                         val failure = withContext(Dispatchers.IO) {
                             runCatching { Smb.validate(candidate) }.exceptionOrNull()
                         }
-                        checking = false
                         if (failure == null) {
+                            checking = false
                             store.addNas(name, host, share, username, password)
                             Logs.event("nas connected: $host/$share")
                             onDone(true)
                         } else {
-                            Logs.warn("nas connect failed for $host/$share", failure)
-                            error = failure.message ?: "The share could not be reached."
+                            Logs.warn("nas connect failed for $host/$share: ${failure.message}")
+                            // When the typed share doesn't exist, list the real
+                            // shares so the user can just pick the right one.
+                            if (Smb.isMissingShareError(failure)) {
+                                val listed = runCatching { NasDiscovery.listShares(host, username, password) }.getOrNull()
+                                if (!listed.isNullOrEmpty()) {
+                                    shares = listed
+                                    error = "No share named “$share”. Pick one of the ${listed.size} below."
+                                } else {
+                                    error = Smb.friendlyError(failure, share)
+                                }
+                            } else {
+                                error = Smb.friendlyError(failure, share)
+                            }
+                            checking = false
                         }
                     }
                 },
