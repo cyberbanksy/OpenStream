@@ -89,14 +89,19 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
             }
     }
 
-    // Immersive video: hide system bars while this screen is up, restore on exit.
+    // The whole app is already immersive (NativeAppActivity), so the player is
+    // fullscreen without touching the bars here. Re-assert the hide on enter in
+    // case a transient swipe revealed them, and — importantly — re-hide on exit
+    // so returning to a browse screen doesn't leave the system bars / taskbar
+    // handle showing.
     DisposableEffect(Unit) {
         val insetsController = context.findActivity()?.window?.insetsController
-        insetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-        insetsController?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        onDispose {
-            insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+        fun hideBars() {
+            insetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+            insetsController?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+        hideBars()
+        onDispose { hideBars() }
     }
 
     DisposableEffect(Unit) {

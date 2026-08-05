@@ -208,7 +208,14 @@ fun OpenStreamApp(onExit: () -> Unit) {
 
     // Back from any tab returns to Discover; from Discover it leaves the app
     // (returning to OpenPanel in the kiosk).
-    BackHandler { if (screen != Screen.Discover) navigate(Screen.Discover) else onExit() }
+    BackHandler {
+        if (screen != Screen.Discover) {
+            navigate(Screen.Discover)
+        } else {
+            Logs.event("exit to OpenPanel (back from Discover)")
+            onExit()
+        }
+    }
 
     Column(
         Modifier
@@ -221,10 +228,6 @@ fun OpenStreamApp(onExit: () -> Unit) {
             current = screen,
             indexing = indexing,
             onNavigate = navigate,
-            onExit = {
-                Logs.event("exit to OpenPanel")
-                onExit()
-            },
         )
         Box(Modifier.fillMaxSize()) {
             when (screen) {
@@ -281,7 +284,6 @@ private fun TopNav(
     current: Screen,
     indexing: Boolean,
     onNavigate: (Screen) -> Unit,
-    onExit: () -> Unit,
 ) {
     val tabs = listOf(
         Tab(Screen.Discover, "Discover"),
@@ -316,6 +318,8 @@ private fun TopNav(
             }
         }
         Spacer(Modifier.weight(1f))
+        // Exit is via the system: swipe up (Home → OpenPanel) or Back from
+        // Discover. No in-app Exit button.
         if (indexing) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(
@@ -324,22 +328,6 @@ private fun TopNav(
                     color = OpenStreamColors.Accent,
                 )
                 Text("Scanning library…", color = OpenStreamColors.Accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.width(16.dp))
-            }
-        }
-        Surface(
-            onClick = onExit,
-            shape = RoundedCornerShape(50),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, OpenStreamColors.BorderStrong),
-        ) {
-            Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Icon(AppIcons.Close, contentDescription = null, tint = OpenStreamColors.TextSoft, modifier = Modifier.size(17.dp))
-                Text("Exit", color = OpenStreamColors.TextSoft, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
