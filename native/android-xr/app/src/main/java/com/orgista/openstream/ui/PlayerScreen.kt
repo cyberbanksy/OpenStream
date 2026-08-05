@@ -59,16 +59,16 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
     val context = LocalContext.current
     var error by remember { mutableStateOf<String?>(null) }
 
+    val mediaUri = remember(request.uri) {
+        if (request.uri == DEMO_URI) RawResourceDataSource.buildRawResourceUri(R.raw.openstream_demo)
+        else android.net.Uri.parse(request.uri)
+    }
+
     val player = remember {
         val dataSourceFactory: DataSource.Factory = when {
             request.uri.startsWith("smb://") && request.nasConnection != null ->
                 SmbDataSource.Factory(request.nasConnection)
             else -> DefaultDataSource.Factory(context)
-        }
-        val mediaUri = if (request.uri == DEMO_URI) {
-            RawResourceDataSource.buildRawResourceUri(R.raw.openstream_demo)
-        } else {
-            android.net.Uri.parse(request.uri)
         }
         // Hardware decoders first — this preserves Dolby Vision video and
         // Dolby Atmos (TrueHD/E-AC3) passthrough that this device supports
@@ -81,12 +81,44 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
             .setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
             .build()
             .apply {
                 setMediaItem(Media3Item.fromUri(mediaUri))
                 playWhenReady = true
                 prepare()
             }
+    }
+
+    // Side-load subtitle files sitting next to the video on the NAS (Movie.srt,
+    // Movie.en.srt …). Embedded subtitles inside the MKV are picked up
+    // automatically; this adds external ones. Re-sets the media item with the
+    // subtitle tracks once found (still near position 0, before real playback).
+    androidx.compose.runtime.LaunchedEffect(request.uri) {
+        val connection = request.nasConnection ?: return@LaunchedEffect
+        if (!request.uri.startsWith("smb://")) return@LaunchedEffect
+        val relative = request.uri.removePrefix(com.orgista.openstream.data.Smb.shareUrl(connection))
+        val subs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.orgista.openstream.data.Smb.siblingSubtitles(connection, relative) }.getOrDefault(emptyList())
+        }
+        if (subs.isEmpty()) return@LaunchedEffect
+        Logs.event("side-loaded ${subs.size} subtitle track(s) for ${request.title}")
+        val item = Media3Item.Builder()
+            .setUri(mediaUri)
+            .setSubtitleConfigurations(
+                subs.map { sub ->
+                    Media3Item.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.uri))
+                        .setMimeType(sub.mimeType)
+                        .setLanguage(sub.language)
+                        .setLabel(sub.label)
+                        .build()
+                },
+            )
+            .build()
+        val resume = player.currentPosition
+        player.setMediaItem(item, resume)
+        player.prepare()
     }
 
     // The whole app is already immersive (NativeAppActivity), so the player is
@@ -135,6 +167,12 @@ fun PlayerScreen(request: PlaybackRequest, onBack: () -> Unit) {
                     this.player = player
                     setShowNextButton(false)
                     setShowPreviousButton(false)
+                    setShowRewindButton(true)
+                    setShowFastForwardButton(true)
+                    // CC button opens the subtitle-track picker (embedded +
+                    // side-loaded); the settings menu covers audio tracks.
+                    setShowSubtitleButton(true)
+                    controllerShowTimeoutMs = 3500
                     keepScreenOn = true
                 }
             },

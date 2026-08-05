@@ -112,6 +112,46 @@ object Smb {
         return results
     }
 
+    data class SidecarSubtitle(val uri: String, val mimeType: String, val language: String?, val label: String)
+
+    private val subtitleMimeTypes = mapOf(
+        "srt" to "application/x-subrip",
+        "vtt" to "text/vtt",
+        "ass" to "text/x-ssa",
+        "ssa" to "text/x-ssa",
+    )
+
+    /**
+     * Finds subtitle files sitting next to a video (e.g. Movie.en.srt) so they
+     * can be side-loaded — the same convention Infuse/Jellyfin use. Language is
+     * guessed from the token before the extension.
+     */
+    fun siblingSubtitles(connection: NasConnection, videoRelativePath: String): List<SidecarSubtitle> {
+        val dir = videoRelativePath.substringBeforeLast('/', "")
+        val videoStem = videoRelativePath.substringAfterLast('/').substringBeforeLast('.')
+        val directory = SmbFile(shareUrl(connection, dir), context(connection))
+        val entries = directory.listFiles() ?: return emptyList()
+        return entries.mapNotNull { file ->
+            val name = file.name.trimEnd('/')
+            val ext = name.substringAfterLast('.', "").lowercase()
+            val mime = subtitleMimeTypes[ext] ?: return@mapNotNull null
+            val stem = name.substringBeforeLast('.')
+            // Match subs whose name starts with the video's name (allowing a
+            // language suffix), or the generic single-sub case.
+            if (!stem.startsWith(videoStem, ignoreCase = true) && entries.count { it.name.endsWith(".$ext") } > 1) {
+                return@mapNotNull null
+            }
+            val langToken = stem.removePrefix(videoStem).trim('.', '-', '_', ' ').lowercase().ifBlank { null }
+            val path = if (dir.isEmpty()) name else "${dir.trim('/')}/$name"
+            SidecarSubtitle(
+                uri = fileUrl(connection, path),
+                mimeType = mime,
+                language = langToken?.take(8),
+                label = (langToken?.replaceFirstChar { it.uppercase() } ?: "Subtitles") + " (${ext.uppercase()})",
+            )
+        }.sortedBy { it.label }
+    }
+
     /** True when a failure means the named share does not exist on the server. */
     fun isMissingShareError(error: Throwable?): Boolean {
         val message = error?.message?.lowercase() ?: return false
