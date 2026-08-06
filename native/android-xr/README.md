@@ -27,7 +27,15 @@ The Media3 capability probe/demo remains available at
 
 ```sh
 JAVA_HOME=$(/usr/libexec/java_home -v 17) gradle test assembleDebug
+pnpm test:android-device
 ```
+
+The attached-device smoke verifier is non-destructive: it checks the installed
+API level, launches the Compose activity, validates the visible app shell,
+navigates Discover → Library → Discover, checks the process log for a crash or
+ANR, and preserves the device's prior sleep state. Set
+`OPENSTREAM_SMOKE_NAVIGATE=0` to perform the launch and shell checks without
+changing the current screen.
 
 On this workstation Gradle cannot run on the project volume — rsync the
 module to a local directory first (see the repo docs). The debug APK is

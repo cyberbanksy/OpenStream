@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build --configLoader runner",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --configLoader runner && node --test server/*.node-test.mjs scripts/*.node-test.mjs",
+    "test:android-device": "sh scripts/android-device-smoke.sh",
     "test:openxr": "scripts/openxr-core-test.sh",
     "test:tv": "node --test scripts/tv-core.node-test.mjs",
     "build:tv": "node scripts/build-tv-packages.mjs",

@@ -119,6 +119,7 @@ Android XR is pinned to `androidx.xr.scenecore:scenecore:1.0.0-beta01`. Its dire
 ```text
 pnpm test
 pnpm build
+pnpm test:android-device
 node scripts/stremio-addons.mjs
 node --test scripts/tv-core.node-test.mjs
 node scripts/build-tv-packages.mjs
@@ -150,6 +151,8 @@ Verified on a Lenovo TB132FU on August 5, 2026:
 - Live remote playback recovered from an expired signed route by selecting an alternate, then resumed the same title from its stable saved position.
 - Back from player/details and swipe-up from the player completed without a crash or ANR; swipe-up returned to OpenPanel.
 - A live HTTPS add-on stream selected Dolby Vision video and E-AC-3 audio, auto-enabled English captions, and passed pause/resume. The provider's Atmos label is accepted only when the selected audio carrier is Atmos-capable.
+- On August 6, 2026, the attached-device smoke verifier passed on the Lenovo TB132FU inside lock-task mode: it launched the installed API 37 app, verified the Compose shell, navigated Discover → Library → Discover, found no crash or ANR, and restored the tablet from Dozing back to Dozing. Mocked CI tests also prove the verifier fails closed on a process crash and restores sleep after waking a device.
+- The animated SVG brand contract test passed: the accessible X-to-cube paths and faces loop every three seconds, and reduced-motion users receive a static X.
 - Native Apple package tests passed, and iOS/iPadOS, tvOS, and visionOS simulator-SDK application bundles compiled successfully. Simulator runtimes were not installed on this Mac.
 - LG/Samsung/Hisense browser execution passed remote navigation, details, play, pause/resume, brief Dolby Vision/Atmos signaling, and automatic offline-only filtering. Roku passed SceneGraph package validation; vendor emulators and store signing tools were not installed.
 - The host-built C++20 OpenXR suites passed geometry, inward sphere, fisheye, cubemap, per-eye stereo UV, multiview texture layers, runtime capability negotiation, and playback-session transition tests.
