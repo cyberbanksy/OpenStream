@@ -19,6 +19,9 @@ target_include_directories(native_app_glue PUBLIC
 
 add_library(openstream_quest SHARED
     main.cpp
+    quest_compositor_video.cpp
+    quest_launch_media.cpp
+    quest_media_player.cpp
     quest_runtime.cpp
     quest_video_layer_plan.cpp
 )

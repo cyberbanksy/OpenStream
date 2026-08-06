@@ -23,8 +23,8 @@ android {
         applicationId = "com.cyberbanksy.openstream.quest"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -57,5 +57,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.annotation:annotation:1.10.0")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
     implementation("org.khronos.openxr:openxr_loader_for_android:1.1.62")
 }

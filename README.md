@@ -79,7 +79,7 @@ reviewing and updating the app and MCP pins in `scripts/openpencil-security.mjs`
 - `native/smart-tv`: vendor-native packaged web applications for LG webOS, Samsung Tizen, and Hisense VIDAA.
 - `native/roku`: native Roku SceneGraph/BrightScript channel.
 - `native/openxr`: C++20 inward-facing flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, cubemap, SBS, top-bottom, and multiview projection plus capability/session core for Android XR and Meta Quest renderers.
-- `native/meta-quest`: arm64 NativeActivity using the Khronos OpenXR Android loader, OpenGL ES session lifecycle, runtime MediaCodec negotiation, compositor-layer planning, and the shared immersive projection core.
+- `native/meta-quest`: arm64 NativeActivity using the Khronos OpenXR Android loader, Media3 URI autoplay, OpenGL ES decoded-texture copies into OpenXR swapchains, flat/equirectangular compositor layers, packed-stereo eye crops, lifecycle pause/resume, runtime capability probes, and the shared immersive projection core.
 - `brand/openstream-x-cube.svg`: accessible, reduced-motion-aware animated SVG that morphs from an X into a cube every three seconds.
 
 Platform staging and core checks:

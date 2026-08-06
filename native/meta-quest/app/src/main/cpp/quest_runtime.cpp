@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -146,6 +148,125 @@ bool audioDecoderAvailable(JNIEnv* environment, const char* mime) {
     return available;
 }
 
+std::string toUtf8(JNIEnv* environment, jstring value) {
+    if (value == nullptr) return {};
+    const char* characters = environment->GetStringUTFChars(value, nullptr);
+    if (characters == nullptr || clearPendingException(environment)) return {};
+    std::string result(characters);
+    environment->ReleaseStringUTFChars(value, characters);
+    return result;
+}
+
+std::optional<LaunchMedia> readLaunchMedia(JNIEnv* environment, jobject activity) {
+    jclass activityClass = environment->GetObjectClass(activity);
+    if (activityClass == nullptr || clearPendingException(environment)) {
+        deleteLocalReference(environment, activityClass);
+        return std::nullopt;
+    }
+    const jmethodID getIntent = environment->GetMethodID(
+        activityClass,
+        "getIntent",
+        "()Landroid/content/Intent;"
+    );
+    jobject intent = getIntent == nullptr
+        ? nullptr
+        : environment->CallObjectMethod(activity, getIntent);
+    jclass intentClass = intent == nullptr ? nullptr : environment->GetObjectClass(intent);
+    if (clearPendingException(environment) || intentClass == nullptr) {
+        deleteLocalReference(environment, intentClass);
+        deleteLocalReference(environment, intent);
+        deleteLocalReference(environment, activityClass);
+        return std::nullopt;
+    }
+
+    const jmethodID getDataString = environment->GetMethodID(
+        intentClass,
+        "getDataString",
+        "()Ljava/lang/String;"
+    );
+    const jmethodID getStringExtra = environment->GetMethodID(
+        intentClass,
+        "getStringExtra",
+        "(Ljava/lang/String;)Ljava/lang/String;"
+    );
+    const jmethodID getIntExtra = environment->GetMethodID(
+        intentClass,
+        "getIntExtra",
+        "(Ljava/lang/String;I)I"
+    );
+    const jmethodID getDoubleExtra = environment->GetMethodID(
+        intentClass,
+        "getDoubleExtra",
+        "(Ljava/lang/String;D)D"
+    );
+    const jmethodID getBooleanExtra = environment->GetMethodID(
+        intentClass,
+        "getBooleanExtra",
+        "(Ljava/lang/String;Z)Z"
+    );
+    if (clearPendingException(environment) || getDataString == nullptr ||
+        getStringExtra == nullptr || getIntExtra == nullptr || getDoubleExtra == nullptr ||
+        getBooleanExtra == nullptr) {
+        deleteLocalReference(environment, intentClass);
+        deleteLocalReference(environment, intent);
+        deleteLocalReference(environment, activityClass);
+        return std::nullopt;
+    }
+
+    const auto readString = [&](const char* name) {
+        jstring key = environment->NewStringUTF(name);
+        auto value = static_cast<jstring>(environment->CallObjectMethod(intent, getStringExtra, key));
+        const std::string result = clearPendingException(environment) ? std::string{} :
+            toUtf8(environment, value);
+        deleteLocalReference(environment, value);
+        deleteLocalReference(environment, key);
+        return result;
+    };
+    const auto readInt = [&](const char* name) {
+        jstring key = environment->NewStringUTF(name);
+        const jint result = environment->CallIntMethod(intent, getIntExtra, key, 0);
+        deleteLocalReference(environment, key);
+        return clearPendingException(environment) ? 0 : result;
+    };
+    const auto readDouble = [&](const char* name) {
+        jstring key = environment->NewStringUTF(name);
+        const jdouble result = environment->CallDoubleMethod(intent, getDoubleExtra, key, 0.0);
+        deleteLocalReference(environment, key);
+        return clearPendingException(environment) ? 0.0 : result;
+    };
+    const auto readBoolean = [&](const char* name, bool fallback) {
+        jstring key = environment->NewStringUTF(name);
+        const jboolean result = environment->CallBooleanMethod(
+            intent,
+            getBooleanExtra,
+            key,
+            fallback ? JNI_TRUE : JNI_FALSE
+        );
+        deleteLocalReference(environment, key);
+        return clearPendingException(environment) ? fallback : result == JNI_TRUE;
+    };
+
+    auto data = static_cast<jstring>(environment->CallObjectMethod(intent, getDataString));
+    const std::string uri = clearPendingException(environment) ? std::string{} :
+        toUtf8(environment, data);
+    LaunchMetadata metadata{
+        .projection = readString("projection"),
+        .stereo = readString("stereo"),
+        .codec = readString("codec"),
+        .dynamicRange = readString("dynamicRange"),
+        .audio = readString("audio"),
+        .width = static_cast<std::uint32_t>(std::max(readInt("width"), 0)),
+        .height = static_cast<std::uint32_t>(std::max(readInt("height"), 0)),
+        .durationSeconds = readDouble("durationSeconds"),
+        .live = readBoolean("live", false),
+    };
+    deleteLocalReference(environment, data);
+    deleteLocalReference(environment, intentClass);
+    deleteLocalReference(environment, intent);
+    deleteLocalReference(environment, activityClass);
+    return makeLaunchMedia(uri, metadata);
+}
+
 }  // namespace
 
 QuestRuntime::~QuestRuntime() {
@@ -212,6 +333,7 @@ bool QuestRuntime::initialize(android_app* app, JNIEnv* environment) {
         shutdown();
         return false;
     }
+    (void) startIncomingVideo(environment, app->activity->clazz);
     logInfo("OpenStream Quest OpenXR session is ready.");
     return true;
 }
@@ -407,6 +529,38 @@ std::optional<VideoLayerPlan> QuestRuntime::prepareVideo(const xr::MediaSpec& me
     return makeVideoLayerPlan(media, *result.plan, layerExtensions_);
 }
 
+bool QuestRuntime::startIncomingVideo(JNIEnv* environment, jobject activity) {
+    const std::optional<LaunchMedia> launch = readLaunchMedia(environment, activity);
+    if (!launch.has_value()) {
+        logInfo("OpenStream Quest is ready for a video VIEW intent.");
+        return false;
+    }
+    const std::optional<VideoLayerPlan> layerPlan = prepareVideo(launch->spec);
+    if (!layerPlan.has_value()) {
+        logError("The incoming Quest video does not match the probed decoder capabilities.");
+        return false;
+    }
+    if (!compositorVideo_.initialize(session_, localSpace_, *layerPlan, launch->spec)) {
+        logError("This Quest video projection still requires the native projection-mesh renderer.");
+        videoSession_.stop();
+        return false;
+    }
+    if (!mediaPlayer_.initialize(
+            environment,
+            activity,
+            launch->uri,
+            launch->spec.decodedWidth,
+            launch->spec.decodedHeight)) {
+        logError("Media3 could not create a decoder surface for the incoming Quest video.");
+        compositorVideo_.shutdown();
+        videoSession_.stop();
+        return false;
+    }
+    videoFrameReady_ = false;
+    logInfo("Quest video autoplay is prepared and will begin with the immersive session.");
+    return true;
+}
+
 void QuestRuntime::handleSessionState(XrSessionState state) {
     sessionState_ = state;
     if (state == XR_SESSION_STATE_READY && !sessionRunning_) {
@@ -414,7 +568,13 @@ void QuestRuntime::handleSessionState(XrSessionState state) {
         beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
         beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
         sessionRunning_ = XR_SUCCEEDED(xrBeginSession(session_, &beginInfo));
+        if (sessionRunning_ && mediaPlayer_.ready()) {
+            (void) videoSession_.play();
+            mediaPlayer_.play();
+        }
     } else if (state == XR_SESSION_STATE_STOPPING && sessionRunning_) {
+        mediaPlayer_.pause();
+        (void) videoSession_.pause();
         xrEndSession(session_);
         sessionRunning_ = false;
     } else if (state == XR_SESSION_STATE_EXITING || state == XR_SESSION_STATE_LOSS_PENDING) {
@@ -453,9 +613,33 @@ void QuestRuntime::renderFrame() {
     endInfo.type = XR_TYPE_FRAME_END_INFO;
     endInfo.displayTime = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    endInfo.layerCount = 0;
-    endInfo.layers = nullptr;
+    const std::vector<const XrCompositionLayerBaseHeader*>* videoLayers = nullptr;
+    if (frameState.shouldRender == XR_TRUE && mediaPlayer_.ready() && compositorVideo_.ready()) {
+        std::array<float, 16> transform{};
+        if (mediaPlayer_.updateTexture(transform)) {
+            videoFrameReady_ = compositorVideo_.renderExternalTexture(
+                mediaPlayer_.texture(),
+                transform
+            ) || videoFrameReady_;
+        }
+        if (videoFrameReady_) videoLayers = &compositorVideo_.layers();
+    }
+    endInfo.layerCount = videoLayers == nullptr
+        ? 0U
+        : static_cast<std::uint32_t>(videoLayers->size());
+    endInfo.layers = videoLayers == nullptr ? nullptr : videoLayers->data();
     xrEndFrame(session_, &endInfo);
+}
+
+void QuestRuntime::handleAppCommand(std::int32_t command) {
+    if (command == APP_CMD_PAUSE || command == APP_CMD_STOP || command == APP_CMD_TERM_WINDOW) {
+        mediaPlayer_.pause();
+        (void) videoSession_.pause();
+    } else if ((command == APP_CMD_RESUME || command == APP_CMD_START ||
+                command == APP_CMD_GAINED_FOCUS) && sessionRunning_ && mediaPlayer_.ready()) {
+        (void) videoSession_.play();
+        mediaPlayer_.play();
+    }
 }
 
 void QuestRuntime::destroyEglContext() {
@@ -471,6 +655,9 @@ void QuestRuntime::destroyEglContext() {
 }
 
 void QuestRuntime::shutdown() {
+    mediaPlayer_.shutdown();
+    compositorVideo_.shutdown();
+    videoFrameReady_ = false;
     videoSession_.stop();
     if (sessionRunning_ && session_ != XR_NULL_HANDLE) xrEndSession(session_);
     sessionRunning_ = false;

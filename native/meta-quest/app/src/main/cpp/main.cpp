@@ -19,6 +19,13 @@ extern "C" void android_main(android_app* app) {
     }
 
     openstream::quest::QuestRuntime runtime;
+    app->userData = &runtime;
+    app->onAppCmd = [](android_app* nativeApp, std::int32_t command) {
+        if (nativeApp != nullptr && nativeApp->userData != nullptr) {
+            static_cast<openstream::quest::QuestRuntime*>(nativeApp->userData)
+                ->handleAppCommand(command);
+        }
+    };
     if (!runtime.initialize(app, environment)) {
         ANativeActivity_finish(app->activity);
         virtualMachine->DetachCurrentThread();
@@ -43,5 +50,7 @@ extern "C" void android_main(android_app* app) {
     }
 
     runtime.shutdown();
+    app->onAppCmd = nullptr;
+    app->userData = nullptr;
     virtualMachine->DetachCurrentThread();
 }

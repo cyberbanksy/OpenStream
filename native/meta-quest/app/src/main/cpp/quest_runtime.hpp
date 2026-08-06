@@ -1,6 +1,9 @@
 #pragma once
 
 #include "immersive_video_session.hpp"
+#include "quest_compositor_video.hpp"
+#include "quest_launch_media.hpp"
+#include "quest_media_player.hpp"
 #include "quest_video_layer_plan.hpp"
 
 #include <EGL/egl.h>
@@ -23,6 +26,7 @@ public:
     [[nodiscard]] bool initialize(android_app* app, JNIEnv* environment);
     void pollEvents();
     void renderFrame();
+    void handleAppCommand(std::int32_t command);
     void shutdown();
 
     [[nodiscard]] bool initialized() const { return instance_ != XR_NULL_HANDLE; }
@@ -36,6 +40,7 @@ private:
     [[nodiscard]] bool createInstance(android_app* app);
     [[nodiscard]] bool createGraphicsSession();
     [[nodiscard]] bool createEglContext();
+    [[nodiscard]] bool startIncomingVideo(JNIEnv* environment, jobject activity);
     void destroyEglContext();
     void populateDecoderCapabilities(JNIEnv* environment);
     void handleSessionState(XrSessionState state);
@@ -56,6 +61,9 @@ private:
     xr::RuntimeCapabilities capabilities_;
     RuntimeLayerExtensions layerExtensions_;
     xr::ImmersiveVideoSession videoSession_;
+    QuestMediaPlayer mediaPlayer_;
+    QuestCompositorVideo compositorVideo_;
+    bool videoFrameReady_ = false;
 };
 
 }  // namespace openstream::quest

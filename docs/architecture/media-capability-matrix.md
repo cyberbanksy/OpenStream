@@ -29,12 +29,12 @@ Android probes `Display.HdrCapabilities`, advertised HEVC/AV1 Main10 profiles, a
 
 | Projection | WebXR | tvOS | visionOS | Android XR / Samsung XR | Meta Quest |
 | --- | --- | --- | --- | --- | --- |
-| Flat | Supported | Supported | Supported | Supported | Supported |
-| Mono/stereo 180 | Runtime WebXR | Unsupported | Public AVKit path | Native SceneCore path, device check | Native compositor/mesh path, device check |
-| Mono/stereo 360 | Runtime WebXR | Unsupported | Public AVKit path | Native SceneCore path, device check | Native compositor/mesh path, device check |
-| Fisheye / VR180 | Runtime WebXR | Unsupported | Runtime check | Blocked; native mesh required | Native mesh path, device check |
-| Cubemap / EAC | Runtime WebXR | Unsupported | Runtime check | Blocked; native mesh required | Native cube/mesh path, device check |
-| Wide FOV / APMP | Runtime WebXR | Unsupported | Public AVKit experience path | Native quad path, device check | Native mesh path, device check |
+| Flat | Supported | Supported | Supported | Supported | OpenXR quad implemented; headset check |
+| Mono/stereo 180 | Runtime WebXR | Unsupported | Public AVKit path | Native SceneCore path, device check | Media3 + KHR equirect layer implemented; headset check |
+| Mono/stereo 360 | Runtime WebXR | Unsupported | Public AVKit path | Native SceneCore path, device check | Media3 + KHR equirect layer implemented; headset check |
+| Fisheye / VR180 | Runtime WebXR | Unsupported | Runtime check | Blocked; native mesh required | Blocked; projection-mesh renderer required |
+| Cubemap / EAC | Runtime WebXR | Unsupported | Runtime check | Blocked; native mesh required | Blocked; cubemap upload/mesh renderer required |
+| Wide FOV / APMP | Runtime WebXR | Unsupported | Public AVKit experience path | Native quad path, device check | Blocked; projection-mesh renderer required |
 | Apple Immersive Video | Unsupported | Unsupported | Public AVKit experience path | Unsupported | Unsupported |
 
 The browser viewer implements 180, 360, and wide projections with mono, side-by-side, and top-bottom stereo layout. It validates source URLs and supports local file selection. Browser HDR preservation depends on the browser, compositor, headset, and media pipeline; OpenStream therefore does not promise Dolby Vision or HDR10+ output through WebXR.
@@ -61,7 +61,7 @@ Implemented and compile-tested:
 - tvOS 26.2 and visionOS 26.2 package compilation;
 - Android runtime capability probe, unit tests, lint, and debug build;
 - Android XR SceneCore managed-full-space APK, URI autoplay policy, projection/stereo policy tests, lint, and debug build;
-- Meta Quest arm64 APK, Khronos loader/manifest integration, OpenXR instance/session lifecycle, decoder probe compilation, and compositor-layer policy test;
+- Meta Quest 0.2.0 arm64 APK, VIEW-intent Media3 autoplay bridge, external-texture copy shader, OpenXR video swapchain and flat/equirectangular composition layers, decoder probes, lifecycle pause/resume, plus launch/layer/stereo-crop policy tests;
 - WebXR projection math and source-policy tests.
 
 Still requires physical-device and licensed-media verification:
@@ -70,5 +70,5 @@ Still requires physical-device and licensed-media verification:
 - Dolby Vision/HDR10+ decoding for each model and profile;
 - Apple Immersive Video and APMP presentation on Vision Pro;
 - SceneCore surface playback and stereo validation on Android XR hardware;
-- OpenXR video texture/compositor presentation and stereo validation on Meta Quest hardware;
+- OpenXR decoded-texture/compositor presentation, orientation, stereo crops, and lifecycle validation on Meta Quest hardware;
 - browser HDR behavior on each headset/browser release.
