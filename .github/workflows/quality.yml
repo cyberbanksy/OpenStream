@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web-server-and-scripts:
     runs-on: ubuntu-latest
@@ -25,6 +29,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-web
+          path: dist
 
   android:
     runs-on: ubuntu-latest
@@ -64,6 +72,13 @@ jobs:
           xcodebuild -project native/apple/Apps/OpenStreamApps.xcodeproj -target 'OpenStream iOS' -sdk iphonesimulator -configuration Debug SYMROOT=/tmp/openstream-ios-products OBJROOT=/tmp/openstream-ios-objects CODE_SIGNING_ALLOWED=NO build
           xcodebuild -project native/apple/Apps/OpenStreamApps.xcodeproj -target 'OpenStream tvOS' -sdk appletvsimulator -configuration Debug SYMROOT=/tmp/openstream-tvos-products OBJROOT=/tmp/openstream-tvos-objects CODE_SIGNING_ALLOWED=NO build
           xcodebuild -project native/apple/Apps/OpenStreamApps.xcodeproj -target 'OpenStream visionOS' -sdk xrsimulator -configuration Debug SYMROOT=/tmp/openstream-vision-products OBJROOT=/tmp/openstream-vision-objects CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-apple-simulator-apps
+          path: |
+            /tmp/openstream-ios-products/Debug-iphonesimulator/OpenStream iOS.app
+            /tmp/openstream-tvos-products/Debug-appletvsimulator/OpenStream tvOS.app
+            /tmp/openstream-vision-products/Debug-xrsimulator/OpenStream visionOS.app
       - name: Test native OpenXR projection core
         run: scripts/openxr-core-test.sh
       - name: Build television staging packages
