@@ -68,7 +68,9 @@ assert_shell() {
 
 tap_text() {
   label=$1
-  bounds=$(xmllint --xpath "string((//node[@text='$label'])[1]/@bounds)" "$local_ui" 2>/dev/null || true)
+  bounds=$(grep -o "text=\"$label\"[^>]*bounds=\"[^\"]*\"" "$local_ui" |
+    head -1 |
+    sed -E 's/.*bounds="([^"]+)".*/\1/' || true)
   coordinates=$(printf '%s' "$bounds" | sed -E 's/^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$/\1 \2 \3 \4/')
   set -- $coordinates
   [ "$#" -eq 4 ] || fail "could not locate the $label navigation target"
