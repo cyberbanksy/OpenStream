@@ -77,7 +77,7 @@ reviewing and updating the app and MCP pins in `scripts/openpencil-security.mjs`
 - `native/apple`: native SwiftUI/AVKit targets for iPhone, iPad, Apple TV, and Apple Vision Pro with capability inspection, resume, device-storage offline media, and network-state signaling.
 - `native/smart-tv`: vendor-native packaged web applications for LG webOS, Samsung Tizen, and Hisense VIDAA.
 - `native/roku`: native Roku SceneGraph/BrightScript channel.
-- `native/openxr`: C++20 inward-facing flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, cubemap, SBS, top-bottom, and multiview projection core for Android XR and Meta Quest OpenXR renderers.
+- `native/openxr`: C++20 inward-facing flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, cubemap, SBS, top-bottom, and multiview projection plus capability/session core for Android XR and Meta Quest renderers.
 - `brand/openstream-x-cube.svg`: accessible, reduced-motion-aware animated SVG that morphs from an X into a cube every three seconds.
 
 Platform staging and core checks:

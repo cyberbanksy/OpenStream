@@ -107,9 +107,9 @@ The check retries transient 408/429/5xx responses with bounded exponential backo
 | Samsung Tizen | Packaged TV web app | Remote focus, registered media keys, native video controls, resume |
 | Hisense VIDAA | Hosted HTML5 app package | Remote focus, HLS/DASH/MSS declaration, resume and offline catalog |
 | Roku | SceneGraph/BrightScript | Native channel, remote navigation, Video node, Registry resume, format label |
-| Android XR / Meta Quest | Jetpack SceneCore / OpenXR C++ | Runtime and projection classification plus tested native geometry core; headset packaging needs the Android NDK and vendor runtime hardware |
+| Android XR / Meta Quest | Jetpack SceneCore / OpenXR C++ | Runtime classification plus tested native geometry, capability negotiation, per-eye binding, and playback session core; headset packaging needs the Android NDK and vendor runtime hardware |
 
-The immersive projection contract recognizes flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, equi-angular cubemap, mono, side-by-side, top-bottom, and MV-HEVC/multiview media. Runtime capability checks still decide whether a particular headset/decoder can play a selected asset.
+The immersive projection contract recognizes flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, equi-angular cubemap, mono, side-by-side, top-bottom, and MV-HEVC/multiview media. The native session core rejects unsupported resolution, codec, projection, stereo, dynamic-range, and spatial-audio combinations before allocating runtime resources, then provides deterministic ready/play/pause/seek/end/stop behavior and per-eye texture bindings.
 
 ## Verification commands
 
@@ -146,4 +146,4 @@ Verified on a Lenovo TB132FU on August 5, 2026:
 - A live HTTPS add-on stream selected Dolby Vision video and E-AC-3 audio, auto-enabled English captions, and passed pause/resume. The provider's Atmos label is accepted only when the selected audio carrier is Atmos-capable.
 - Native Apple package tests passed, and iOS/iPadOS, tvOS, and visionOS simulator-SDK application bundles compiled successfully. Simulator runtimes were not installed on this Mac.
 - LG/Samsung/Hisense browser execution passed remote navigation, details, play, pause/resume, brief Dolby Vision/Atmos signaling, and automatic offline-only filtering. Roku passed SceneGraph package validation; vendor emulators and store signing tools were not installed.
-- The host-built C++20 OpenXR projection suite passed geometry, inward sphere, fisheye, cubemap, and per-eye stereo UV tests.
+- The host-built C++20 OpenXR suites passed geometry, inward sphere, fisheye, cubemap, per-eye stereo UV, multiview texture layers, runtime capability negotiation, and playback-session transition tests.
