@@ -58,6 +58,10 @@ private:
     GLuint framebuffer_ = 0;
     GLuint copyProgram_ = 0;
     GLint transformUniform_ = -1;
+    GLint projectionUniform_ = -1;
+    GLint stereoUniform_ = -1;
+    GLint sourceProjection_ = 0;
+    GLint stereoLayout_ = 0;
 
     std::array<XrCompositionLayerQuad, 2> quadLayers_{};
     std::array<XrCompositionLayerEquirect2KHR, 2> equirectLayers_{};

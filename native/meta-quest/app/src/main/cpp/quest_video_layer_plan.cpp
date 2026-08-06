@@ -1,5 +1,7 @@
 #include "quest_video_layer_plan.hpp"
 
+#include <algorithm>
+
 namespace openstream::quest {
 
 VideoLayerPlan makeVideoLayerPlan(
@@ -19,11 +21,17 @@ VideoLayerPlan makeVideoLayerPlan(
                 : LayerKind::ProjectionMesh;
             break;
         case xr::Projection::Cubemap360:
-            kind = extensions.cube ? LayerKind::Cube : LayerKind::ProjectionMesh;
+            kind = extensions.equirectangular
+                ? LayerKind::Equirectangular
+                : (extensions.cube ? LayerKind::Cube : LayerKind::ProjectionMesh);
             break;
         case xr::Projection::Fisheye180:
+            kind = extensions.equirectangular
+                ? LayerKind::Equirectangular
+                : LayerKind::ProjectionMesh;
+            break;
         case xr::Projection::WideFieldOfView:
-            kind = LayerKind::ProjectionMesh;
+            kind = LayerKind::Quad;
             break;
     }
     return {.kind = kind, .presentation = presentation};
@@ -64,6 +72,33 @@ VideoPixelRect videoPixelRectForEye(
         }
     }
     return result;
+}
+
+VideoPixelExtent compositorSwapchainExtent(const xr::MediaSpec& media) {
+    if (media.projection != xr::Projection::Fisheye180 &&
+        media.projection != xr::Projection::Cubemap360) {
+        return {.width = media.decodedWidth, .height = media.decodedHeight};
+    }
+    const std::uint32_t eyeWidth = 2048;
+    const std::uint32_t eyeHeight = media.projection == xr::Projection::Fisheye180
+        ? 2048
+        : 1024;
+    return {
+        .width = media.stereo == xr::StereoLayout::SideBySide ? eyeWidth * 2 : eyeWidth,
+        .height = media.stereo == xr::StereoLayout::TopBottom ? eyeHeight * 2 : eyeHeight,
+    };
+}
+
+float compositorQuadWidth(const xr::MediaSpec& media) {
+    const float sourceWidth = static_cast<float>(media.decodedWidth) /
+        (media.stereo == xr::StereoLayout::SideBySide ? 2.0F : 1.0F);
+    const float sourceHeight = static_cast<float>(media.decodedHeight) /
+        (media.stereo == xr::StereoLayout::TopBottom ? 2.0F : 1.0F);
+    const float aspect = sourceWidth / std::max(sourceHeight, 1.0F);
+    const float projectionScale = media.projection == xr::Projection::WideFieldOfView
+        ? 1.65F
+        : 1.0F;
+    return std::clamp(2.0F * aspect * projectionScale, 2.0F, 4.5F);
 }
 
 }  // namespace openstream::quest

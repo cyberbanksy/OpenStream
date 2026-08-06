@@ -33,9 +33,10 @@ runtime resources only after the result is accepted.
 
 | Shared plan | Android XR adapter | Meta Quest adapter |
 | --- | --- | --- |
-| Flat / wide mesh | SceneCore panel or surface entity | Flat OpenXR quad; wide mesh pending |
+| Flat / wide mesh | SceneCore panel or surface entity | Native OpenXR quad |
 | 180° projection | SceneCore hemisphere surface | KHR equirectangular layer; mesh fallback pending |
 | 360° projection | SceneCore sphere surface | KHR equirectangular layer; mesh fallback pending |
+| Fisheye / cubemap | Native mesh required | GPU conversion to KHR equirectangular layer; mesh fallback pending |
 | Packed SBS / top-bottom | Media3 surface plus per-eye UV crop | Media3 surface, swapchain copy, per-eye image rect |
 | MV-HEVC / multiview | Two decoded views when supported | Texture-array renderer pending |
 | HDR and spatial audio | Android decoder/display/audio capability probe | Quest decoder/display/audio capability probe |
@@ -43,10 +44,13 @@ runtime resources only after the result is accepted.
 The Android XR adapter uses Jetpack XR SceneCore full-space surfaces and
 Media3. The Meta Quest adapter uses Media3, the Khronos Android OpenXR loader,
 a real OpenGL ES OpenXR session, runtime MediaCodec queries, an external-texture
-copy shader, and video-layer swapchains. Its current compositor presents flat
-and equirectangular mono/SBS/top-bottom sources; other planned geometry remains
-blocked until its runtime renderer exists. Neither adapter infers decoder/HDR
-support from a filename or bypasses DRM.
+copy shader, and video-layer swapchains. Its current compositor presents flat,
+wide-FOV, equirectangular, fisheye/VR180, and 3x2 EAC/cubemap sources in
+mono/SBS/top-bottom layouts. The shader converts fisheye and cubemap frames to
+equirectangular output. Multiview and runtimes without the KHR equirectangular
+extension remain blocked until the texture-array or projection-mesh renderer
+exists. Neither adapter infers decoder/HDR support from a filename or bypasses
+DRM.
 
 ## Runtime packages and remaining hardware prerequisites
 

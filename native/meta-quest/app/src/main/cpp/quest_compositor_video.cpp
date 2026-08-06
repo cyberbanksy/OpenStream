@@ -56,8 +56,15 @@ bool QuestCompositorVideo::initialize(
     }
     session_ = session;
     space_ = space;
-    width_ = media.decodedWidth;
-    height_ = media.decodedHeight;
+    const VideoPixelExtent outputExtent = compositorSwapchainExtent(media);
+    width_ = outputExtent.width;
+    height_ = outputExtent.height;
+    sourceProjection_ = media.projection == xr::Projection::Fisheye180
+        ? 1
+        : (media.projection == xr::Projection::Cubemap360 ? 2 : 0);
+    stereoLayout_ = media.stereo == xr::StereoLayout::SideBySide
+        ? 1
+        : (media.stereo == xr::StereoLayout::TopBottom ? 2 : 0);
     if (!createSwapchain() || !createCopyProgram()) {
         shutdown();
         return false;
@@ -145,8 +152,105 @@ in vec2 videoUv;
 layout(location = 0) out vec4 outputColor;
 uniform samplerExternalOES videoTexture;
 uniform mat4 videoTransform;
+uniform int sourceProjection;
+uniform int stereoLayout;
+
+const float PI = 3.14159265358979323846;
+
+void unpackStereoUv(vec2 packedUv, out vec2 localUv, out vec2 offset, out vec2 scale) {
+    offset = vec2(0.0);
+    scale = vec2(1.0);
+    if (stereoLayout == 1) {
+        scale.x = 0.5;
+        offset.x = packedUv.x >= 0.5 ? 0.5 : 0.0;
+    } else if (stereoLayout == 2) {
+        scale.y = 0.5;
+        offset.y = packedUv.y >= 0.5 ? 0.5 : 0.0;
+    }
+    localUv = (packedUv - offset) / scale;
+}
+
+vec2 fisheyeSourceUv(vec2 equirectUv) {
+    float azimuth = (equirectUv.x - 0.5) * PI;
+    float elevation = (0.5 - equirectUv.y) * PI;
+    float cosElevation = cos(elevation);
+    float forward = cos(azimuth) * cosElevation;
+    float theta = acos(clamp(forward, -1.0, 1.0));
+    float radial = theta / PI;
+    float sinTheta = sin(theta);
+    if (abs(sinTheta) < 0.00001) {
+        return vec2(0.5);
+    }
+    return vec2(
+        0.5 + radial * sin(azimuth) * cosElevation / sinTheta,
+        0.5 - radial * sin(elevation) / sinTheta
+    );
+}
+
+float eacCoordinate(float faceCoordinate) {
+    return atan(faceCoordinate) / (PI * 0.5) + 0.5;
+}
+
+vec2 cubemapSourceUv(vec2 equirectUv) {
+    float azimuth = (equirectUv.x - 0.5) * 2.0 * PI;
+    float elevation = (0.5 - equirectUv.y) * PI;
+    float cosElevation = cos(elevation);
+    vec3 direction = vec3(
+        -sin(azimuth) * cosElevation,
+        sin(elevation),
+        -cos(azimuth) * cosElevation
+    );
+    vec3 magnitude = abs(direction);
+    int face = 0;
+    vec2 faceCoordinate = vec2(0.0);
+    if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z) {
+        if (direction.x >= 0.0) {
+            face = 0;
+            faceCoordinate = vec2(direction.z, -direction.y) / magnitude.x;
+        } else {
+            face = 1;
+            faceCoordinate = vec2(-direction.z, -direction.y) / magnitude.x;
+        }
+    } else if (magnitude.y >= magnitude.z) {
+        if (direction.y >= 0.0) {
+            face = 2;
+            faceCoordinate = vec2(direction.x, direction.z) / magnitude.y;
+        } else {
+            face = 3;
+            faceCoordinate = vec2(direction.x, -direction.z) / magnitude.y;
+        }
+    } else if (direction.z >= 0.0) {
+        face = 4;
+        faceCoordinate = vec2(-direction.x, -direction.y) / magnitude.z;
+    } else {
+        face = 5;
+        faceCoordinate = vec2(direction.x, -direction.y) / magnitude.z;
+    }
+    vec2 faceUv = vec2(
+        eacCoordinate(faceCoordinate.x),
+        eacCoordinate(faceCoordinate.y)
+    );
+    vec2 atlasCell = vec2(float(face % 3), float(face / 3));
+    return (atlasCell + faceUv) / vec2(3.0, 2.0);
+}
+
 void main() {
-    vec2 transformedUv = (videoTransform * vec4(videoUv, 0.0, 1.0)).xy;
+    vec2 localUv;
+    vec2 stereoOffset;
+    vec2 stereoScale;
+    unpackStereoUv(videoUv, localUv, stereoOffset, stereoScale);
+    vec2 sourceUv = localUv;
+    if (sourceProjection == 1) {
+        sourceUv = fisheyeSourceUv(localUv);
+    } else if (sourceProjection == 2) {
+        sourceUv = cubemapSourceUv(localUv);
+    }
+    if (any(lessThan(sourceUv, vec2(0.0))) || any(greaterThan(sourceUv, vec2(1.0)))) {
+        outputColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    vec2 packedSourceUv = stereoOffset + sourceUv * stereoScale;
+    vec2 transformedUv = (videoTransform * vec4(packedSourceUv, 0.0, 1.0)).xy;
     outputColor = texture(videoTexture, transformedUv);
 }
 )glsl";
@@ -172,12 +276,15 @@ void main() {
         return false;
     }
     transformUniform_ = glGetUniformLocation(copyProgram_, "videoTransform");
+    projectionUniform_ = glGetUniformLocation(copyProgram_, "sourceProjection");
+    stereoUniform_ = glGetUniformLocation(copyProgram_, "stereoLayout");
     const GLint textureUniform = glGetUniformLocation(copyProgram_, "videoTexture");
     glUseProgram(copyProgram_);
     glUniform1i(textureUniform, 0);
     glUseProgram(0);
     glGenFramebuffers(1, &framebuffer_);
-    return transformUniform_ >= 0 && textureUniform >= 0 && framebuffer_ != 0;
+    return transformUniform_ >= 0 && projectionUniform_ >= 0 && stereoUniform_ >= 0 &&
+        textureUniform >= 0 && framebuffer_ != 0;
 }
 
 XrSwapchainSubImage QuestCompositorVideo::subImageForEye(
@@ -203,12 +310,6 @@ void QuestCompositorVideo::configureLayers(
     layerHeaders_.clear();
     const bool stereo = media.stereo != xr::StereoLayout::Mono;
     const std::uint32_t layerCount = stereo ? 2U : 1U;
-    const float sourceWidth = static_cast<float>(width_) /
-        (media.stereo == xr::StereoLayout::SideBySide ? 2.0F : 1.0F);
-    const float sourceHeight = static_cast<float>(height_) /
-        (media.stereo == xr::StereoLayout::TopBottom ? 2.0F : 1.0F);
-    const float aspect = sourceWidth / std::max(sourceHeight, 1.0F);
-
     for (std::uint32_t index = 0; index < layerCount; ++index) {
         const xr::Eye eye = index == 0 ? xr::Eye::Left : xr::Eye::Right;
         const XrEyeVisibility visibility = stereo
@@ -224,7 +325,7 @@ void QuestCompositorVideo::configureLayers(
             layer.pose.orientation.w = 1.0F;
             layer.pose.position.z = -2.5F;
             layer.size.height = 2.0F;
-            layer.size.width = std::clamp(2.0F * aspect, 2.0F, 4.5F);
+            layer.size.width = compositorQuadWidth(media);
             layerHeaders_.push_back(
                 reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)
             );
@@ -237,7 +338,9 @@ void QuestCompositorVideo::configureLayers(
             layer.subImage = subImageForEye(media.stereo, eye);
             layer.pose.orientation.w = 1.0F;
             layer.radius = 10.0F;
-            layer.centralHorizontalAngle = media.projection == xr::Projection::Equirectangular180
+            layer.centralHorizontalAngle =
+                (media.projection == xr::Projection::Equirectangular180 ||
+                 media.projection == xr::Projection::Fisheye180)
                 ? std::numbers::pi_v<float>
                 : 2.0F * std::numbers::pi_v<float>;
             layer.upperVerticalAngle = std::numbers::pi_v<float> / 2.0F;
@@ -287,6 +390,8 @@ bool QuestCompositorVideo::renderExternalTexture(
         glDisable(GL_DEPTH_TEST);
         glUseProgram(copyProgram_);
         glUniformMatrix4fv(transformUniform_, 1, GL_FALSE, transform.data());
+        glUniform1i(projectionUniform_, sourceProjection_);
+        glUniform1i(stereoUniform_, stereoLayout_);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_EXTERNAL_OES, externalTexture);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -309,6 +414,10 @@ void QuestCompositorVideo::shutdown() {
     framebuffer_ = 0;
     copyProgram_ = 0;
     transformUniform_ = -1;
+    projectionUniform_ = -1;
+    stereoUniform_ = -1;
+    sourceProjection_ = 0;
+    stereoLayout_ = 0;
     swapchainImages_.clear();
     if (swapchain_ != XR_NULL_HANDLE) xrDestroySwapchain(swapchain_);
     swapchain_ = XR_NULL_HANDLE;

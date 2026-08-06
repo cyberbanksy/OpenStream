@@ -30,6 +30,11 @@ struct VideoPixelRect {
     std::int32_t height = 0;
 };
 
+struct VideoPixelExtent {
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
+
 [[nodiscard]] VideoLayerPlan makeVideoLayerPlan(
     const xr::MediaSpec& media,
     const xr::PresentationPlan& presentation,
@@ -47,5 +52,9 @@ struct VideoPixelRect {
     xr::StereoLayout stereo,
     xr::Eye eye
 );
+
+[[nodiscard]] VideoPixelExtent compositorSwapchainExtent(const xr::MediaSpec& media);
+
+[[nodiscard]] float compositorQuadWidth(const xr::MediaSpec& media);
 
 }  // namespace openstream::quest

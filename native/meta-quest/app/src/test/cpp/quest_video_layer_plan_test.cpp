@@ -4,6 +4,8 @@
 
 using openstream::quest::LayerKind;
 using openstream::quest::RuntimeLayerExtensions;
+using openstream::quest::compositorQuadWidth;
+using openstream::quest::compositorSwapchainExtent;
 using openstream::quest::makeVideoLayerPlan;
 using openstream::quest::supportsCompositorPlayback;
 using openstream::quest::videoPixelRectForEye;
@@ -32,15 +34,18 @@ int main() {
     media.projection = Projection::Cubemap360;
     assert(makeVideoLayerPlan(media, presentation, {}).kind == LayerKind::ProjectionMesh);
     assert(makeVideoLayerPlan(media, presentation, {.cube = true}).kind == LayerKind::Cube);
+    assert(makeVideoLayerPlan(media, presentation, {.equirectangular = true, .cube = true}).kind ==
+        LayerKind::Equirectangular);
 
     media.projection = Projection::Fisheye180;
-    assert(makeVideoLayerPlan(media, presentation, {.equirectangular = true, .cube = true}).kind ==
-        LayerKind::ProjectionMesh);
+    assert(makeVideoLayerPlan(media, presentation, {}).kind == LayerKind::ProjectionMesh);
+    assert(makeVideoLayerPlan(media, presentation, {.equirectangular = true}).kind ==
+        LayerKind::Equirectangular);
 
     media.projection = Projection::WideFieldOfView;
     const auto widePlan = makeVideoLayerPlan(media, presentation, {});
-    assert(widePlan.kind == LayerKind::ProjectionMesh);
-    assert(!supportsCompositorPlayback(widePlan, StereoLayout::Mono));
+    assert(widePlan.kind == LayerKind::Quad);
+    assert(supportsCompositorPlayback(widePlan, StereoLayout::Mono));
 
     media.projection = Projection::Flat;
     const auto flatPlan = makeVideoLayerPlan(media, presentation, {});
@@ -57,4 +62,34 @@ int main() {
     const auto bottom = videoPixelRectForEye(3840, 1921, StereoLayout::TopBottom, Eye::Right);
     assert(top.y == 0 && top.height == 960);
     assert(bottom.y == 960 && bottom.height == 961);
+
+    media.decodedWidth = 3072;
+    media.decodedHeight = 2048;
+    media.projection = Projection::Cubemap360;
+    media.stereo = StereoLayout::Mono;
+    const auto cubeMono = compositorSwapchainExtent(media);
+    assert(cubeMono.width == 2048 && cubeMono.height == 1024);
+    media.stereo = StereoLayout::SideBySide;
+    const auto cubeSbs = compositorSwapchainExtent(media);
+    assert(cubeSbs.width == 4096 && cubeSbs.height == 1024);
+    media.stereo = StereoLayout::TopBottom;
+    const auto cubeTb = compositorSwapchainExtent(media);
+    assert(cubeTb.width == 2048 && cubeTb.height == 2048);
+
+    media.projection = Projection::Fisheye180;
+    media.stereo = StereoLayout::SideBySide;
+    const auto fisheyeSbs = compositorSwapchainExtent(media);
+    assert(fisheyeSbs.width == 4096 && fisheyeSbs.height == 2048);
+
+    media.projection = Projection::Flat;
+    const auto unchanged = compositorSwapchainExtent(media);
+    assert(unchanged.width == 3072 && unchanged.height == 2048);
+
+    media.decodedWidth = 1920;
+    media.decodedHeight = 1080;
+    media.stereo = StereoLayout::Mono;
+    const float flatWidth = compositorQuadWidth(media);
+    assert(flatWidth > 3.5F && flatWidth < 3.6F);
+    media.projection = Projection::WideFieldOfView;
+    assert(compositorQuadWidth(media) == 4.5F);
 }
