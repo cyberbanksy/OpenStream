@@ -45,10 +45,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 9.5.1
+      - name: Install pinned Android native toolchain
+        run: sdkmanager 'ndk;29.0.14206865' 'cmake;4.1.2'
       - name: Build Android mobile/tablet
         run: gradle --no-watch-fs -p native/android-xr testDebugUnitTest lintDebug assembleDebug
       - name: Build Google TV
         run: gradle --no-watch-fs -p native/google-tv testDebugUnitTest lintDebug assembleDebug
+      - name: Build Android XR SceneCore
+        run: OPENSTREAM_ANDROID_XR_BUILD_DIR="$RUNNER_TEMP/openstream-android-xr-scene" gradle --no-watch-fs -p native/android-xr-scene testDebugUnitTest lintDebug assembleDebug
+      - name: Build Meta Quest OpenXR
+        run: OPENSTREAM_QUEST_BUILD_DIR="$RUNNER_TEMP/openstream-meta-quest" gradle --no-watch-fs -p native/meta-quest lintDebug assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: openstream-android-debug
@@ -57,6 +63,14 @@ jobs:
         with:
           name: openstream-google-tv-debug
           path: native/google-tv/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-android-xr-debug
+          path: ${{ runner.temp }}/openstream-android-xr-scene/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-meta-quest-debug
+          path: ${{ runner.temp }}/openstream-meta-quest/outputs/apk/debug/app-debug.apk
 
   apple-smart-tv-and-openxr-core:
     runs-on: macos-latest
@@ -80,7 +94,9 @@ jobs:
             /tmp/openstream-tvos-products/Debug-appletvsimulator/OpenStream tvOS.app
             /tmp/openstream-vision-products/Debug-xrsimulator/OpenStream visionOS.app
       - name: Test native OpenXR projection core
-        run: scripts/openxr-core-test.sh
+        run: |
+          scripts/openxr-core-test.sh
+          scripts/quest-layer-test.sh
       - name: Build television staging packages
         run: node scripts/build-tv-packages.mjs
       - uses: actions/upload-artifact@v4

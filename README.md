@@ -73,11 +73,13 @@ reviewing and updating the app and MCP pins in `scripts/openpencil-security.mjs`
 ## Native targets
 
 - `native/android-xr`: native Android tablet/mobile app with Media3, add-ons, metadata, recommendations, device-fit offline downloads, resume, captions, HDR/Dolby indicators, and XR routing.
+- `native/android-xr-scene`: independent Android XR full-space app using SceneCore `SurfaceEntity` and Media3, with incoming-URI autoplay, packed stereo/MV-HEVC selection, and explicit HDR surface metadata.
 - `native/google-tv`: independent Google TV application ID with Leanback launcher, remote focus, Media3 session support, and the shared Android core.
 - `native/apple`: native SwiftUI/AVKit targets for iPhone, iPad, Apple TV, and Apple Vision Pro with capability inspection, resume, device-storage offline media, and network-state signaling.
 - `native/smart-tv`: vendor-native packaged web applications for LG webOS, Samsung Tizen, and Hisense VIDAA.
 - `native/roku`: native Roku SceneGraph/BrightScript channel.
 - `native/openxr`: C++20 inward-facing flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, cubemap, SBS, top-bottom, and multiview projection plus capability/session core for Android XR and Meta Quest renderers.
+- `native/meta-quest`: arm64 NativeActivity using the Khronos OpenXR Android loader, OpenGL ES session lifecycle, runtime MediaCodec negotiation, compositor-layer planning, and the shared immersive projection core.
 - `brand/openstream-x-cube.svg`: accessible, reduced-motion-aware animated SVG that morphs from an X into a cube every three seconds.
 
 Platform staging and core checks:
@@ -86,6 +88,9 @@ Platform staging and core checks:
 pnpm test:tv
 pnpm build:tv
 pnpm test:openxr
+scripts/quest-layer-test.sh
+OPENSTREAM_ANDROID_XR_BUILD_DIR=/tmp/openstream-android-xr-scene-build gradle --no-watch-fs -p native/android-xr-scene testDebugUnitTest lintDebug assembleDebug
+OPENSTREAM_QUEST_BUILD_DIR=/tmp/openstream-meta-quest-build gradle --no-watch-fs -p native/meta-quest lintDebug assembleDebug
 ```
 
 Store signing, vendor certificates, and account-bound submissions remain outside source control.

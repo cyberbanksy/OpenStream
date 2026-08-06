@@ -107,9 +107,12 @@ The check retries transient 408/429/5xx responses with bounded exponential backo
 | Samsung Tizen | Packaged TV web app | Remote focus, registered media keys, native video controls, resume |
 | Hisense VIDAA | Hosted HTML5 app package | Remote focus, HLS/DASH/MSS declaration, resume and offline catalog |
 | Roku | SceneGraph/BrightScript | Native channel, remote navigation, Video node, Registry resume, format label |
-| Android XR / Meta Quest | Jetpack SceneCore / OpenXR C++ | Runtime classification plus tested native geometry, capability negotiation, per-eye binding, and playback session core; headset packaging needs the Android NDK and vendor runtime hardware |
+| Android XR | Kotlin, SceneCore, Media3 | Independent full-space APK, incoming-URI autoplay, flat/equirectangular surfaces, mono/SBS/top-bottom/MV-HEVC, HDR surface metadata, pause/resume lifecycle |
+| Meta Quest | Android NativeActivity, OpenXR C++, OpenGL ES | Independent arm64 APK, Khronos loader 1.1.62, real session lifecycle, headset MediaCodec negotiation, native compositor/mesh planning, shared playback-session core |
 
 The immersive projection contract recognizes flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, equi-angular cubemap, mono, side-by-side, top-bottom, and MV-HEVC/multiview media. The native session core rejects unsupported resolution, codec, projection, stereo, dynamic-range, and spatial-audio combinations before allocating runtime resources, then provides deterministic ready/play/pause/seek/end/stop behavior and per-eye texture bindings.
+
+Android XR is pinned to `androidx.xr.scenecore:scenecore:1.0.0-beta01`. Its direct `SurfaceEntity` path covers flat, wide-FOV, equirectangular 180°/360°, packed stereo, and MV-HEVC. It blocks fisheye and EAC/cubemap sources with an explicit native-mesh requirement instead of showing incorrect UV mapping. The Quest package is pinned to the official Khronos `openxr_loader_for_android:1.1.62`, NDK `29.0.14206865`, and SDK CMake `4.1.2`. It enables native equirectangular/cube composition layers only when advertised and otherwise retains the tested projection-mesh fallback.
 
 ## Verification commands
 
@@ -120,11 +123,14 @@ node scripts/stremio-addons.mjs
 node --test scripts/tv-core.node-test.mjs
 node scripts/build-tv-packages.mjs
 scripts/openxr-core-test.sh
+scripts/quest-layer-test.sh
 swift test --package-path native/apple --scratch-path /tmp/openstream-apple-build --jobs 1
 gradle --no-watch-fs --project-cache-dir /tmp/openstream-gradle-project-cache -p native/android-xr testDebugUnitTest
 gradle --no-watch-fs --project-cache-dir /tmp/openstream-gradle-project-cache -p native/android-xr lintDebug
 gradle --no-watch-fs --project-cache-dir /tmp/openstream-gradle-project-cache -p native/android-xr assembleDebug
 adb install -r native/android-xr/app/build/outputs/apk/debug/app-debug.apk
+OPENSTREAM_ANDROID_XR_BUILD_DIR=/tmp/openstream-android-xr-scene-build gradle --no-watch-fs --project-cache-dir /tmp/openstream-xr-scene-gradle -p native/android-xr-scene testDebugUnitTest lintDebug assembleDebug
+OPENSTREAM_QUEST_BUILD_DIR=/tmp/openstream-meta-quest-build gradle --no-watch-fs --project-cache-dir /tmp/openstream-meta-quest-gradle -p native/meta-quest lintDebug assembleDebug
 ```
 
 If Android packaging on an external macOS volume reports that it cannot delete AGP's generated `packageDebug/tmp` folder, route generated output to local temporary storage:
@@ -147,3 +153,6 @@ Verified on a Lenovo TB132FU on August 5, 2026:
 - Native Apple package tests passed, and iOS/iPadOS, tvOS, and visionOS simulator-SDK application bundles compiled successfully. Simulator runtimes were not installed on this Mac.
 - LG/Samsung/Hisense browser execution passed remote navigation, details, play, pause/resume, brief Dolby Vision/Atmos signaling, and automatic offline-only filtering. Roku passed SceneGraph package validation; vendor emulators and store signing tools were not installed.
 - The host-built C++20 OpenXR suites passed geometry, inward sphere, fisheye, cubemap, per-eye stereo UV, multiview texture layers, runtime capability negotiation, and playback-session transition tests.
+- On August 6, 2026, the Android XR SceneCore unit tests, lint, and APK build passed against SceneCore 1.0.0-beta01. Manifest inspection confirmed the spatial XR API declaration and managed full-space launch mode.
+- On August 6, 2026, the Meta Quest arm64 native engine compiled with NDK 29/CMake 4.1.2, linked Khronos loader 1.1.62, passed lint and layer-policy tests, and produced an APK containing the loader and native engine. Manifest inspection confirmed the immersive HMD category, head-tracking requirement, loader permissions, and runtime-broker queries.
+- No Android XR or Quest headset was attached to this Mac. End-to-end headset frames, controllers, decoder limits, HDR/display output, spatial audio, comfort, store signing, and vendor submission remain physical-device checks; they are not represented as passed.

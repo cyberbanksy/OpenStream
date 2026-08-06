@@ -39,18 +39,18 @@ runtime resources only after the result is accepted.
 | MV-HEVC / multiview | Two decoded views when supported | Two texture-array layers |
 | HDR and spatial audio | Android decoder/display/audio capability probe | Quest decoder/display/audio capability probe |
 
-The Android XR adapter will use Jetpack XR SceneCore full-space surfaces and
-Media3. The Meta Quest adapter will use the Khronos Android OpenXR loader,
-OpenXR swapchains, and Android MediaCodec surface decoding. Neither adapter
-may infer support from a filename alone or bypass DRM.
+The Android XR adapter uses Jetpack XR SceneCore full-space surfaces and
+Media3. The Meta Quest adapter uses the Khronos Android OpenXR loader, a real
+OpenGL ES OpenXR session, runtime MediaCodec queries, and compositor-or-mesh
+layer planning. Neither adapter infers decoder/HDR support from a filename or
+bypasses DRM.
 
-## Remaining platform prerequisites
+## Runtime packages and remaining hardware prerequisites
 
-The runtime adapters are intentionally not declared buildable until the
-official Android NDK/CMake, Jetpack XR SceneCore dependency, and Khronos
-OpenXR Android loader are installed. A real Android XR or Meta Quest runtime
-is also required for end-to-end frame, controller, decoder, HDR, audio, and
-comfort validation.
+Both debug packages are buildable with NDK 29.0.14206865 and CMake 4.1.2.
+Android XR uses SceneCore 1.0.0-beta01; Quest uses Khronos loader 1.1.62. A
+real Android XR or Meta Quest runtime is still required for end-to-end frame,
+controller, decoder, HDR, audio, and comfort validation.
 
 - Android XR OpenXR setup: <https://developer.android.com/develop/xr/openxr/get-started>
 - Android XR spatial video: <https://developer.android.com/develop/xr/jetpack-xr-sdk/add-spatial-video>
