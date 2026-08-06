@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "./logger.mjs";
+import { createTmdbMetadataService } from "./metadata.mjs";
 import { listNasDirectory, resolveWithinRoot, streamNasFile, validateNasRoot } from "./nas.mjs";
 import {
   authorizeTarget,
@@ -581,7 +582,7 @@ function redeemXrHandoff(value, ownerId) {
   };
 }
 
-async function routeRequest(request, response, session, logger) {
+async function routeRequest(request, response, session, logger, metadataService) {
   const origin = request.headers.origin;
   const requestUrl = parseCanonicalRequestTarget(request.url ?? "/", {
     origin: `http://${urlHost}:${port}`,
@@ -614,6 +615,9 @@ async function routeRequest(request, response, session, logger) {
   }
   if (requestUrl.pathname === "/api/connections" && request.method === "POST") {
     return sendJson(response, 200, await testConnection(await readJson(request), ownerId), origin);
+  }
+  if (requestUrl.pathname === "/api/metadata/recent" && request.method === "GET") {
+    return sendJson(response, 200, metadataService.getSnapshot(), origin);
   }
 
   if (requestUrl.pathname === "/api/arr/options" && request.method === "GET") {
@@ -789,6 +793,7 @@ async function routeRequest(request, response, session, logger) {
 export function createGatewayServer({
   sessionToken = process.env.OPENSTREAM_GATEWAY_TOKEN,
   logger = createLogger({ mirrorToConsole: false }),
+  metadataService = createTmdbMetadataService(),
 } = {}) {
   const session = createGatewaySession(sessionToken);
   return http.createServer((request, response) => {
@@ -797,7 +802,7 @@ export function createGatewayServer({
     response.on("finish", () => {
       void logger?.info("gateway", `${request.method} ${loggedPath} -> ${response.statusCode}`, { ms: Date.now() - startedAt });
     });
-    void routeRequest(request, response, session, logger).catch((error) => {
+    void routeRequest(request, response, session, logger, metadataService).catch((error) => {
       const origin = request.headers.origin;
       const message = error instanceof SyntaxError ? "Request JSON is invalid." : error.message || "Gateway request failed.";
       const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 400;
@@ -815,9 +820,15 @@ export function createGatewayServer({
 const isEntrypoint = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isEntrypoint) {
   const logger = createLogger();
-  const server = createGatewayServer({ sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN, logger });
-  server.listen(port, host, () => {
-    console.log(`OpenStream secure gateway listening on http://${host}:${port}`);
-    console.log(`OpenStream gateway logs: ${logger.directory}`);
+  const metadataService = createTmdbMetadataService({
+    onError: (error) => { void logger.warn("metadata", error.message); },
   });
+  const server = createGatewayServer({ sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN, logger, metadataService });
+  void metadataService.start().catch((error) => logger.warn("metadata", error.message)).finally(() => {
+    server.listen(port, host, () => {
+      console.log(`OpenStream secure gateway listening on http://${host}:${port}`);
+      console.log(`OpenStream gateway logs: ${logger.directory}`);
+    });
+  });
+  server.on("close", () => metadataService.close());
 }

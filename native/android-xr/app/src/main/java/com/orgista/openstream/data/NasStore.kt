@@ -19,6 +19,18 @@ data class StremioAddon(
     val name: String,
     val transportUrl: String,
     val version: String,
+    val manifestId: String = id,
+    val resources: Set<String> = setOf("stream"),
+    val catalogs: List<StremioCatalog> = emptyList(),
+    val builtIn: Boolean = false,
+    val enabled: Boolean = true,
+)
+
+data class StremioCatalog(
+    val type: String,
+    val id: String,
+    val name: String,
+    val requiresInput: Boolean = false,
 )
 
 /**
@@ -85,52 +97,119 @@ class ConnectionStore(context: Context) {
 
     fun stremioAddons(): List<StremioAddon> {
         val raw = prefs.getString(KEY_STREMIO, "[]") ?: "[]"
-        return try {
+        val custom = try {
             val array = JSONArray(raw)
             (0 until array.length()).map { index ->
                 val json = array.getJSONObject(index)
+                val resources = json.optJSONArray("resources")?.let { values ->
+                    (0 until values.length()).mapNotNull { values.optString(it).takeIf(String::isNotBlank) }.toSet()
+                }.orEmpty().ifEmpty { setOf("stream") }
+                val catalogs = json.optJSONArray("catalogs")?.let { values ->
+                    (0 until values.length()).mapNotNull { catalogIndex ->
+                        val catalog = values.optJSONObject(catalogIndex) ?: return@mapNotNull null
+                        val type = catalog.optString("type")
+                        val id = catalog.optString("id")
+                        if (type.isBlank() || id.isBlank()) return@mapNotNull null
+                        StremioCatalog(
+                            type = type,
+                            id = id,
+                            name = catalog.optString("name", id),
+                            requiresInput = catalog.optBoolean("requiresInput"),
+                        )
+                    }
+                }.orEmpty()
                 StremioAddon(
                     id = json.getString("id"),
                     name = json.getString("name"),
                     transportUrl = json.getString("transportUrl"),
                     version = json.optString("version"),
+                    manifestId = json.optString("manifestId", json.getString("id")),
+                    resources = resources,
+                    catalogs = catalogs,
                 )
             }
         } catch (_: Exception) {
             emptyList()
         }
+        val disabled = prefs.getStringSet(KEY_STREMIO_DISABLED, emptySet()).orEmpty()
+        return (BuiltInStremioAddons.all + custom)
+            .distinctBy { it.manifestId to it.transportUrl }
+            .map { addon -> addon.copy(enabled = addon.id !in disabled) }
     }
 
     fun addStremio(addon: StremioAddon) {
         val array = JSONArray()
-        (stremioAddons().filter { it.transportUrl != addon.transportUrl } + addon).forEach { entry ->
+        (stremioAddons().filter { !it.builtIn && it.manifestId != addon.manifestId } + addon).forEach { entry ->
             array.put(
                 JSONObject()
                     .put("id", entry.id)
                     .put("name", entry.name)
                     .put("transportUrl", entry.transportUrl)
-                    .put("version", entry.version),
+                    .put("version", entry.version)
+                    .put("manifestId", entry.manifestId)
+                    .put("resources", JSONArray(entry.resources.toList()))
+                    .put(
+                        "catalogs",
+                        JSONArray().apply {
+                            entry.catalogs.forEach { catalog ->
+                                put(
+                                    JSONObject()
+                                        .put("type", catalog.type)
+                                        .put("id", catalog.id)
+                                        .put("name", catalog.name)
+                                        .put("requiresInput", catalog.requiresInput),
+                                )
+                            }
+                        },
+                    ),
             )
         }
         prefs.edit().putString(KEY_STREMIO, array.toString()).apply()
     }
 
     fun removeStremio(id: String) {
+        if (BuiltInStremioAddons.all.any { it.id == id }) {
+            setStremioEnabled(id, false)
+            return
+        }
         val array = JSONArray()
-        stremioAddons().filter { it.id != id }.forEach { entry ->
+        stremioAddons().filter { !it.builtIn && it.id != id }.forEach { entry ->
             array.put(
                 JSONObject()
                     .put("id", entry.id)
                     .put("name", entry.name)
                     .put("transportUrl", entry.transportUrl)
-                    .put("version", entry.version),
+                    .put("version", entry.version)
+                    .put("manifestId", entry.manifestId)
+                    .put("resources", JSONArray(entry.resources.toList()))
+                    .put(
+                        "catalogs",
+                        JSONArray().apply {
+                            entry.catalogs.forEach { catalog ->
+                                put(
+                                    JSONObject()
+                                        .put("type", catalog.type)
+                                        .put("id", catalog.id)
+                                        .put("name", catalog.name)
+                                        .put("requiresInput", catalog.requiresInput),
+                                )
+                            }
+                        },
+                    ),
             )
         }
         prefs.edit().putString(KEY_STREMIO, array.toString()).apply()
     }
 
+    fun setStremioEnabled(id: String, enabled: Boolean) {
+        val disabled = prefs.getStringSet(KEY_STREMIO_DISABLED, emptySet()).orEmpty().toMutableSet()
+        if (enabled) disabled.remove(id) else disabled.add(id)
+        prefs.edit().putStringSet(KEY_STREMIO_DISABLED, disabled).apply()
+    }
+
     private companion object {
         const val KEY_NAS = "nas.v1"
         const val KEY_STREMIO = "stremio.v1"
+        const val KEY_STREMIO_DISABLED = "stremio.disabled.v1"
     }
 }

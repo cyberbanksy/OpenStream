@@ -1,6 +1,13 @@
 package com.orgista.openstream.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.annotation.OptIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -27,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,18 +54,41 @@ import com.orgista.openstream.data.MediaItem
 import com.orgista.openstream.data.MediaKind
 import com.orgista.openstream.data.StremioAddon
 import com.orgista.openstream.data.StremioClient
+import com.orgista.openstream.data.StremioCatalogMerger
 import com.orgista.openstream.data.StremioStream
+import com.orgista.openstream.Logs
+import com.orgista.openstream.offline.OfflineMediaRuntime
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.offline.Download
 import com.orgista.openstream.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private tailrec fun Context.detailsActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.detailsActivity()
+    else -> null
+}
+
+private fun requestDownloadNotificationPermission(context: Context) {
+    if (Build.VERSION.SDK_INT >= 33 &&
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        context.detailsActivity()?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4701)
+    }
+}
+
+@OptIn(UnstableApi::class)
 @Composable
 fun DetailsScreen(
     item: MediaItem,
     kidsMode: Boolean,
     addons: List<StremioAddon>,
+    offlineRuntime: OfflineMediaRuntime,
+    online: Boolean,
     metadataLoader: com.orgista.openstream.library.MetadataLoader,
+    onMetadataEnriched: (MediaItem) -> Unit = {},
     onBack: () -> Unit,
     onPlay: (PlaybackRequest) -> Unit,
 ) {
@@ -65,16 +96,52 @@ fun DetailsScreen(
     val scope = rememberCoroutineScope()
     var streamResults by remember { mutableStateOf<List<StremioStream>?>(null) }
     var searching by remember { mutableStateOf(false) }
+    var offlineWorking by remember { mutableStateOf(false) }
+    val offlineEntries by offlineRuntime.entries.collectAsState()
 
     // Lazily fetch full metadata (genres, cast, RT/IMDb/Metacritic) for this
     // one title when the screen opens — keeps the library scan fast.
     var enriched by remember(item.id) { mutableStateOf(item) }
     androidx.compose.runtime.LaunchedEffect(item.id) {
-        if (metadataLoader.active && item.tmdbId != null) {
-            runCatching { metadataLoader.enrich(item) }.getOrNull()?.let { enriched = it }
+        var result = item
+        if (online && metadataLoader.active) {
+            runCatching { metadataLoader.enrich(result) }.getOrNull()?.let { result = it }
         }
+        val metaId = result.imdbId ?: result.id.takeIf { it.startsWith("tt") }
+        if (online && metaId != null) {
+            val type = if (result.kind == MediaKind.SERIES) "series" else "movie"
+            val remoteMeta = withContext(Dispatchers.IO) {
+                addons.asSequence()
+                    .filter { "meta" in it.resources }
+                    .mapNotNull { addon -> runCatching { StremioClient.metaFor(addon, type, metaId) }.getOrNull() }
+                    .firstOrNull()
+            }
+            if (remoteMeta != null) result = StremioCatalogMerger.mergeItem(result, remoteMeta)
+        }
+        enriched = result
+        onMetadataEnriched(result)
     }
     val item = enriched
+    val streamAddons = addons.filter { "stream" in it.resources }
+
+    suspend fun resolveStreams(): List<StremioStream> {
+        val imdbId = item.imdbId ?: return emptyList()
+        val type = if (item.kind == MediaKind.SERIES) "series" else "movie"
+        return withContext(Dispatchers.IO) {
+            streamAddons.flatMap { addon ->
+                runCatching { StremioClient.streamsFor(addon, type, imdbId) }.getOrDefault(emptyList())
+            }.distinctBy { it.url }
+        }
+    }
+
+    suspend fun offlineStreams(): List<StremioStream> {
+        val direct = item.candidates.mapNotNull { candidate ->
+            candidate.uri.takeIf { it.startsWith("https://") || it.startsWith("http://") || it.startsWith("smb://") }
+                ?.let { StremioStream("${candidate.formatLabel} · ${candidate.sourceName}", it) }
+        }
+        val remote = if (online && !kidsMode && streamAddons.isNotEmpty()) resolveStreams() else emptyList()
+        return (direct + remote).distinctBy { it.url }
+    }
 
     Column(Modifier.fillMaxSize().background(OpenStreamColors.Canvas).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(320.dp)) {
@@ -130,22 +197,45 @@ fun DetailsScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val first = item.candidates.firstOrNull()
                 val playLabel = if (item.episodes.isNotEmpty()) "Play S1 E1" else "Play"
-                PillButton(playLabel, icon = AppIcons.Play, enabled = first != null) {
+                val canResolveStream = !kidsMode && streamAddons.isNotEmpty() && item.imdbId != null
+                PillButton(playLabel, icon = AppIcons.Play, enabled = first != null || canResolveStream) {
                     if (first != null) {
-                        onPlay(PlaybackRequest(item.title, item.episodes.firstOrNull()?.subtitle ?: first.sourceName, first.uri))
+                        onPlay(
+                            PlaybackRequest(
+                                item.title,
+                                item.episodes.firstOrNull()?.subtitle ?: first.sourceName,
+                                first.uri,
+                                mediaId = item.id,
+                                offlineDownloadId = first.offlineDownloadId,
+                            ),
+                        )
+                    } else if (canResolveStream && !searching) {
+                        searching = true
+                        scope.launch {
+                            val found = resolveStreams()
+                            searching = false
+                            val stream = found.firstOrNull()
+                            if (stream == null) {
+                                Toast.makeText(context, "No directly playable add-on stream found", Toast.LENGTH_SHORT).show()
+                            } else {
+                                onPlay(
+                                    PlaybackRequest(
+                                        item.title,
+                                        stream.title,
+                                        stream.url,
+                                        mediaId = item.id,
+                                        fallbackUris = found.drop(1).map { it.url },
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
-                if (!kidsMode && addons.isNotEmpty() && item.imdbId != null) {
+                if (canResolveStream) {
                     PillButton(if (searching) "Searching…" else "Search add-ons", prominent = false, enabled = !searching) {
                         searching = true
                         scope.launch {
-                            val type = if (item.kind == MediaKind.SERIES) "series" else "movie"
-                            val found = withContext(Dispatchers.IO) {
-                                addons.flatMap { addon ->
-                                    runCatching { StremioClient.streamsFor(addon, type, item.imdbId) }
-                                        .getOrDefault(emptyList())
-                                }
-                            }
+                            val found = resolveStreams()
                             searching = false
                             if (found.isEmpty()) {
                                 Toast.makeText(context, "No add-on streams found", Toast.LENGTH_SHORT).show()
@@ -157,12 +247,74 @@ fun DetailsScreen(
                 }
             }
 
+            val offlineEntry = offlineEntries.firstOrNull { it.item.id == item.id }
+            val offlineLabel = when (offlineEntry?.state) {
+                Download.STATE_COMPLETED -> "Remove offline download"
+                Download.STATE_DOWNLOADING -> "${offlineEntry.percent ?: 0}% downloaded · Cancel"
+                Download.STATE_QUEUED, Download.STATE_RESTARTING -> "Queued for offline · Cancel"
+                Download.STATE_REMOVING -> "Removing…"
+                Download.STATE_FAILED -> "Retry offline download"
+                else -> if (offlineWorking) "Choosing best quality…" else "Make available offline"
+            }
+            PillButton(
+                offlineLabel,
+                icon = AppIcons.Storage,
+                prominent = false,
+                enabled = !offlineWorking && offlineEntry?.state != Download.STATE_REMOVING,
+            ) {
+                when (offlineEntry?.state) {
+                    Download.STATE_COMPLETED,
+                    Download.STATE_DOWNLOADING,
+                    Download.STATE_QUEUED,
+                    Download.STATE_RESTARTING,
+                    -> offlineRuntime.remove(offlineEntry.downloadId)
+                    else -> {
+                        requestDownloadNotificationPermission(context)
+                        offlineWorking = true
+                        scope.launch {
+                            val routes = offlineStreams()
+                            val result = runCatching { offlineRuntime.enqueue(item, routes) }
+                            offlineWorking = false
+                            result.onSuccess { selected ->
+                                Logs.event("offline download queued: ${item.title} (${selected.qualityLabel})")
+                                Toast.makeText(
+                                    context,
+                                    "Downloading ${selected.qualityLabel} to this device",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }.onFailure { failure ->
+                                val location = failure.stackTrace.firstOrNull {
+                                    it.className.startsWith("com.orgista.openstream") || it.className.startsWith("androidx.media3")
+                                }?.let { " at ${it.className.substringAfterLast('.')}.${it.methodName}" }.orEmpty()
+                                Logs.warn(
+                                    "offline download could not start for ${item.title} " +
+                                        "(${failure::class.simpleName}$location)",
+                                )
+                                Toast.makeText(context, "The offline download could not start", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+
             if (item.episodes.isNotEmpty()) {
                 SectionHeader("Episodes")
                 item.episodes.forEach { episode ->
                     val epCandidate = episode.candidates.firstOrNull()
                     Surface(
-                        onClick = { epCandidate?.let { onPlay(PlaybackRequest("${item.title} · ${episode.subtitle}", item.title, it.uri)) } },
+                        onClick = {
+                            epCandidate?.let {
+                                onPlay(
+                                    PlaybackRequest(
+                                        "${item.title} · ${episode.subtitle}",
+                                        item.title,
+                                        it.uri,
+                                        mediaId = episode.id,
+                                        offlineDownloadId = it.offlineDownloadId,
+                                    ),
+                                )
+                            }
+                        },
                         shape = RoundedCornerShape(10.dp),
                         color = OpenStreamColors.Surface,
                         border = BorderStroke(1.dp, OpenStreamColors.Border),
@@ -183,7 +335,17 @@ fun DetailsScreen(
             SectionHeader("Available routes")
             item.candidates.forEach { candidate ->
                 Surface(
-                    onClick = { onPlay(PlaybackRequest(item.title, candidate.sourceName, candidate.uri)) },
+                    onClick = {
+                        onPlay(
+                            PlaybackRequest(
+                                item.title,
+                                candidate.sourceName,
+                                candidate.uri,
+                                mediaId = item.id,
+                                offlineDownloadId = candidate.offlineDownloadId,
+                            ),
+                        )
+                    },
                     shape = RoundedCornerShape(10.dp),
                     color = OpenStreamColors.Surface,
                     border = BorderStroke(1.dp, OpenStreamColors.Border),
@@ -226,7 +388,7 @@ fun DetailsScreen(
                         Surface(
                             onClick = {
                                 streamResults = null
-                                onPlay(PlaybackRequest(item.title, "Add-on stream", stream.url))
+                                onPlay(PlaybackRequest(item.title, stream.title, stream.url, mediaId = item.id))
                             },
                             shape = RoundedCornerShape(8.dp),
                             color = OpenStreamColors.SurfaceRaised,

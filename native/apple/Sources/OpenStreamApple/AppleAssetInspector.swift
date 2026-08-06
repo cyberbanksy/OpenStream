@@ -98,7 +98,7 @@ public enum AppleAssetInspector {
         if kind == (kCMFormatDescriptionProjectionKind_Equirectangular as String) {
             return stereo ? .stereo360 : .mono360
         }
-        if #available(macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
             if kind == (kCMFormatDescriptionProjectionKind_AppleImmersiveVideo as String) { return .appleImmersive }
             if kind == (kCMFormatDescriptionProjectionKind_ParametricImmersive as String) { return .wideFOV }
         }

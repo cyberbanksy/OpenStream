@@ -4,7 +4,7 @@ import androidx.annotation.DrawableRes
 
 enum class MediaKind { MOVIE, SERIES, VIDEO }
 
-enum class SourceKind { DEMO, NAS, STREMIO }
+enum class SourceKind { DEMO, NAS, STREMIO, OFFLINE }
 
 /** One playable route for a title. */
 data class MediaCandidate(
@@ -15,6 +15,8 @@ data class MediaCandidate(
     val uri: String,
     val formatLabel: String,
     val directPlay: Boolean = true,
+    /** Media3 download id when this route must read only from the offline cache. */
+    val offlineDownloadId: String? = null,
 )
 
 /** Aggregated critic/audience scores, Infuse-style. Any may be null. */
@@ -34,7 +36,7 @@ data class MediaItem(
     /** MPAA/TV certification; empty means unrated (blocked in Kids Mode). */
     val rating: String,
     val runtimeMinutes: Int,
-    @DrawableRes val artRes: Int? = null,
+    @param:DrawableRes val artRes: Int? = null,
     /** Remote poster (TMDB); takes precedence over artRes when present. */
     val posterUrl: String? = null,
     val backdropUrl: String? = null,

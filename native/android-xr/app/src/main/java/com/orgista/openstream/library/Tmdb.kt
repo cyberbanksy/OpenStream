@@ -28,18 +28,24 @@ data class TmdbDetails(
 )
 
 /**
- * TMDB metadata client. A user-supplied v3 API key (Settings) unlocks posters,
- * backdrops, overviews, and certifications — the same source Infuse and
- * Jellyfin scrape. Without a key the library still organizes offline from
- * parsed filenames; this simply enriches it.
+ * TMDB metadata client. Accepts either TMDB credential the user can paste in
+ * Settings: the v3 API key (a 32-char hex string, sent as an `api_key` query
+ * param) or the v4 API Read Access Token (a long JWT starting with `eyJ`, sent
+ * as an `Authorization: Bearer` header). Either unlocks posters, backdrops,
+ * overviews, and certifications — the same source Infuse and Jellyfin scrape.
+ * Without a key the library still organizes offline from parsed filenames.
  */
 class Tmdb(private val apiKey: String) {
     val enabled: Boolean get() = apiKey.isNotBlank()
 
+    // A v4 Read Access Token is a JWT ("eyJ…"); anything else is treated as a
+    // v3 key and appended to the query string.
+    private val bearerToken: String? = apiKey.takeIf { it.startsWith("eyJ") }
+
     fun searchMovie(title: String, year: Int?): TmdbResult? {
         if (!enabled) return null
         val url = buildString {
-            append("https://api.themoviedb.org/3/search/movie?api_key=$apiKey&query=")
+            append("https://api.themoviedb.org/3/search/movie?query=")
             append(URLEncoder.encode(title, "UTF-8"))
             if (year != null) append("&year=$year")
         }
@@ -49,7 +55,7 @@ class Tmdb(private val apiKey: String) {
 
     fun searchShow(title: String): TmdbResult? {
         if (!enabled) return null
-        val url = "https://api.themoviedb.org/3/search/tv?api_key=$apiKey&query=" +
+        val url = "https://api.themoviedb.org/3/search/tv?query=" +
             URLEncoder.encode(title, "UTF-8")
         val first = firstResult(url) ?: return null
         return toResult(first, isMovie = false)
@@ -59,8 +65,7 @@ class Tmdb(private val apiKey: String) {
     fun movieDetails(tmdbId: Int): TmdbDetails? {
         if (!enabled) return null
         val json = getJson(
-            "https://api.themoviedb.org/3/movie/$tmdbId?api_key=$apiKey" +
-                "&append_to_response=credits,release_dates",
+            "https://api.themoviedb.org/3/movie/$tmdbId?append_to_response=credits,release_dates",
         ) ?: return null
         val cert = usCertification(json.optJSONObject("release_dates"), "movie")
         return toDetails(json, json.optString("imdb_id").takeIf { it.isNotBlank() }, cert)
@@ -69,8 +74,7 @@ class Tmdb(private val apiKey: String) {
     fun showDetails(tmdbId: Int): TmdbDetails? {
         if (!enabled) return null
         val json = getJson(
-            "https://api.themoviedb.org/3/tv/$tmdbId?api_key=$apiKey" +
-                "&append_to_response=credits,external_ids,content_ratings",
+            "https://api.themoviedb.org/3/tv/$tmdbId?append_to_response=credits,external_ids,content_ratings",
         ) ?: return null
         val imdb = json.optJSONObject("external_ids")?.optString("imdb_id")?.takeIf { it.isNotBlank() }
         val cert = usCertification(json.optJSONObject("content_ratings"), "tv")
@@ -144,10 +148,20 @@ class Tmdb(private val apiKey: String) {
 
     private fun getJson(url: String): JSONObject? {
         return try {
-            val connection = URL(url).openConnection() as HttpURLConnection
+            // v3: append the key to the query. v4: leave the URL alone and
+            // authenticate with the bearer header instead.
+            val requestUrl = if (bearerToken == null) {
+                url + (if ('?' in url) "&" else "?") + "api_key=" + apiKey
+            } else {
+                url
+            }
+            val connection = URL(requestUrl).openConnection() as HttpURLConnection
             connection.connectTimeout = 8_000
             connection.readTimeout = 10_000
             connection.setRequestProperty("Accept", "application/json")
+            if (bearerToken != null) {
+                connection.setRequestProperty("Authorization", "Bearer $bearerToken")
+            }
             try {
                 if (connection.responseCode !in 200..299) {
                     Logs.warn("tmdb HTTP ${connection.responseCode}")
@@ -158,7 +172,8 @@ class Tmdb(private val apiKey: String) {
                 connection.disconnect()
             }
         } catch (error: Exception) {
-            Logs.warn("tmdb request failed", error)
+            // URL/cause text can contain a v3 key; log only the failure type.
+            Logs.warn("tmdb request failed (${error::class.simpleName})")
             null
         }
     }

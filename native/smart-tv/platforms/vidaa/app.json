@@ -1,0 +1,10 @@
+{
+  "id": "com.cyberbanksy.openstream.vidaa",
+  "name": "OpenStream",
+  "version": "0.1.0",
+  "entry": "index.html",
+  "vendor": "Cyberbanksy",
+  "type": "hosted-html5",
+  "resolution": "1920x1080",
+  "protocols": ["https", "hls", "dash", "mss"]
+}

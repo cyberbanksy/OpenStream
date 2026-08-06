@@ -22,7 +22,7 @@ const sessionPath = path.join(outputDir, 'session.json')
 const reportPath = path.join(outputDir, 'last-run.json')
 const latestFigPath = path.join(outputDir, 'latest.fig')
 const latestPreviewPath = path.join(outputDir, 'latest.png')
-const stagingDir = createPrivateTempWorkspace('orgista-make-')
+const stagingDir = createPrivateTempWorkspace('openstream-make-')
 const stagingFigPath = path.join(stagingDir, 'latest.fig')
 const openPencilUrl = 'http://127.0.0.1:7600'
 let stagingRemoved = false
@@ -140,7 +140,7 @@ async function connectOpenPencil(health) {
       ? { headers: { Authorization: `Bearer ${health.token}` } }
       : undefined
   })
-  const client = new Client({ name: 'orgista-make', version: '0.1.0' })
+  const client = new Client({ name: 'openstream-make', version: '0.1.0' })
   await client.connect(transport)
   assertTrustedOpenPencilRuntime()
   return { client, transport }
@@ -209,7 +209,7 @@ async function prepareCanvas(client, prompt, forceNew) {
 }
 
 function buildAgentPrompt(userPrompt, mode, pageName) {
-  return `You are Orgista Make, a conversational product-design agent controlling a live OpenPencil canvas.
+  return `You are OpenStream Make, a conversational product-design agent controlling a live OpenPencil canvas.
 
 The active OpenPencil page is named "${pageName}". This is a ${mode === 'new' ? 'new design' : 'continuation of the existing design conversation'}.
 

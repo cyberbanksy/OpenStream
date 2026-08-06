@@ -28,7 +28,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,7 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.orgista.openstream.data.MediaItem
 import com.orgista.openstream.data.MediaKind
+import com.orgista.openstream.domain.CatalogSections
+import com.orgista.openstream.domain.FeaturedCatalog
 import com.orgista.openstream.ui.icons.AppIcons
+import kotlinx.coroutines.delay
 
 fun formatRuntime(minutes: Int): String {
     val hours = minutes / 60
@@ -53,12 +58,28 @@ fun formatRuntime(minutes: Int): String {
 }
 
 @Composable
-fun DiscoverScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
+fun DiscoverScreen(
+    catalog: List<MediaItem>,
+    offlineMode: Boolean = false,
+    onOpen: (MediaItem) -> Unit,
+    onPlay: (MediaItem) -> Unit,
+) {
     if (catalog.isEmpty()) {
-        EmptyCatalog()
+        EmptyCatalog(offlineMode)
         return
     }
-    var featured by remember(catalog) { mutableStateOf(catalog.first()) }
+    val catalogIds = remember(catalog) { catalog.map { it.id } }
+    var featuredIndex by remember(catalogIds) { mutableIntStateOf(0) }
+    val safeIndex = featuredIndex.coerceIn(0, catalog.lastIndex)
+    val featured = catalog[safeIndex]
+    val sections = remember(catalog) { CatalogSections.build(catalog) }
+
+    LaunchedEffect(catalogIds, featuredIndex) {
+        if (catalog.size > 1) {
+            delay(12_000)
+            featuredIndex = FeaturedCatalog.nextIndex(featuredIndex, catalog.size)
+        }
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(400.dp)) {
@@ -108,23 +129,21 @@ fun DiscoverScreen(catalog: List<MediaItem>, onOpen: (MediaItem) -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PillButton("Play", icon = AppIcons.Play) { onOpen(featured) }
+                    PillButton("Play", icon = AppIcons.Play) { onPlay(featured) }
                     PillButton("Details", prominent = false) { onOpen(featured) }
                 }
             }
         }
 
-        val continueWatching = catalog.filter { it.progressPercent != null }
-        if (continueWatching.isNotEmpty()) {
-            SectionHeader("Continue watching", Modifier.padding(start = 34.dp, top = 8.dp, bottom = 12.dp))
-            MediaRail(continueWatching) { item ->
-                featured = item
-                onOpen(item)
+        sections.forEachIndexed { sectionIndex, section ->
+            SectionHeader(
+                section.title,
+                Modifier.padding(start = 34.dp, top = if (sectionIndex == 0) 8.dp else 24.dp, bottom = 12.dp),
+            )
+            MediaRail(section.items, keyPrefix = "section-$sectionIndex-") { item ->
+                featuredIndex = FeaturedCatalog.indexForSelection(catalogIds, item.id)
             }
         }
-
-        SectionHeader("All titles", Modifier.padding(start = 34.dp, top = 24.dp, bottom = 12.dp))
-        MediaRail(catalog, keyPrefix = "all-") { item -> onOpen(item) }
         Box(Modifier.height(28.dp))
     }
 }
@@ -237,15 +256,24 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyCatalog() {
+private fun EmptyCatalog(offlineMode: Boolean) {
     Column(
         Modifier.fillMaxSize().padding(40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Nothing to show yet", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
         Text(
-            "No titles match this device's content settings. Add age-appropriate media to a connected library.",
+            if (offlineMode) "No offline downloads yet" else "Nothing to show yet",
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = OpenStreamColors.Text,
+        )
+        Text(
+            if (offlineMode) {
+                "Reconnect, open a title, and choose Make available offline. Completed downloads appear here automatically."
+            } else {
+                "No titles match this device's content settings. Add age-appropriate media to a connected library."
+            },
             modifier = Modifier.padding(top = 10.dp),
             color = OpenStreamColors.TextSoft,
             fontSize = 15.sp,

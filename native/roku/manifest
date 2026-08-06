@@ -1,0 +1,12 @@
+title=OpenStream
+subtitle=Your media, direct
+major_version=0
+minor_version=1
+build_version=0
+ui_resolutions=fhd
+mm_icon_focus_fhd=pkg:/images/mm_icon_focus_fhd.png
+mm_icon_side_fhd=pkg:/images/mm_icon_side_fhd.png
+splash_screen_fhd=pkg:/images/splash_screen_fhd.png
+splash_color=#070909
+splash_min_time=800
+supports_input_launch=1

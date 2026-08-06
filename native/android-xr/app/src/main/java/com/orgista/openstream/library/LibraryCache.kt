@@ -66,6 +66,16 @@ object LibraryCache {
         .putOpt("backdropUrl", backdropUrl)
         .putOpt("imdbId", imdbId)
         .putOpt("tmdbId", tmdbId)
+        .put("genres", JSONArray(genres))
+        .put("cast", JSONArray(cast))
+        .putOpt("director", director)
+        .putOpt("tagline", tagline)
+        .putOpt("ratings", ratings?.let {
+            JSONObject()
+                .putOpt("imdb", it.imdb)
+                .putOpt("rottenTomatoes", it.rottenTomatoes)
+                .putOpt("metacritic", it.metacritic)
+        })
         .put("candidates", JSONArray(candidates.map { it.toJson() }))
         .put("episodes", JSONArray(episodes.map { it.toJson() }))
 
@@ -90,12 +100,26 @@ object LibraryCache {
         backdropUrl = optString("backdropUrl").takeIf { it.isNotBlank() },
         imdbId = optString("imdbId").takeIf { it.isNotBlank() },
         tmdbId = if (has("tmdbId") && !isNull("tmdbId")) optInt("tmdbId") else null,
+        genres = optJSONArray("genres").toStrings(),
+        cast = optJSONArray("cast").toStrings(),
+        director = optString("director").takeIf { it.isNotBlank() },
+        tagline = optString("tagline").takeIf { it.isNotBlank() },
+        ratings = optJSONObject("ratings")?.let { ratings ->
+            com.orgista.openstream.data.TitleRatings(
+                imdb = ratings.optString("imdb").takeIf { it.isNotBlank() },
+                rottenTomatoes = ratings.optString("rottenTomatoes").takeIf { it.isNotBlank() },
+                metacritic = ratings.optString("metacritic").takeIf { it.isNotBlank() },
+            )
+        },
         candidates = optJSONArray("candidates").toCandidates(),
         episodes = optJSONArray("episodes").toItems(),
     )
 
     private fun JSONArray?.toCandidates(): List<MediaCandidate> =
         if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it)?.toCandidate() }
+
+    private fun JSONArray?.toStrings(): List<String> =
+        if (this == null) emptyList() else (0 until length()).mapNotNull { optString(it).takeIf(String::isNotBlank) }
 
     private fun JSONObject.toCandidate(): MediaCandidate = MediaCandidate(
         id = optString("id"),

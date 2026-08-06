@@ -19,6 +19,8 @@ public enum AppleCapabilityProbe {
         let platform = "visionOS"
         #elseif os(tvOS)
         let platform = "tvOS"
+        #elseif os(iOS)
+        let platform = "iOS/iPadOS"
         #elseif os(macOS)
         let platform = "macOS"
         #else

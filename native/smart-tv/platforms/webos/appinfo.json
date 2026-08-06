@@ -1,0 +1,23 @@
+{
+  "id": "com.cyberbanksy.openstream.webos",
+  "title": "OpenStream",
+  "main": "index.html",
+  "icon": "icon.png",
+  "largeIcon": "largeicon.png",
+  "type": "web",
+  "vendor": "Cyberbanksy",
+  "version": "0.1.0",
+  "appDescription": "Native television streaming from your sources.",
+  "resolution": "1920x1080",
+  "bgColor": "#070909",
+  "iconColor": "#070909",
+  "requiredMemory": 64,
+  "supportTouchMode": "none",
+  "disableBackHistoryAPI": true,
+  "accessibility": {
+    "supportsAudioGuidance": true
+  },
+  "screenSaverProperties": {
+    "preferredType": 3
+  }
+}

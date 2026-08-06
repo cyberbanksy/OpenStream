@@ -1,6 +1,8 @@
-# OpenStream.orgista.com
+# OpenStream
 
-OpenStream is an independent, tvOS-first media application under the Orgista development umbrella. It combines local, NAS, cloud, and add-on discovery with capability-aware playback, request/download-manager handoff, and immersive media routes.
+OpenStream is an independent, multi-platform media application maintained by [Cyberbanksy](https://github.com/cyberbanksy). It combines local, NAS, cloud, and add-on discovery with capability-aware playback, request/download-manager handoff, and immersive media routes.
+
+Operational configuration, metadata credential rules, and playback behavior are documented in [`MASTER.md`](MASTER.md).
 
 ## Kids Mode
 
@@ -56,7 +58,7 @@ pnpm make -- "Make the focused card more obvious"
 node scripts/live-smoke.mjs "<secure launch url>" "<nas folder>"   # live E2E: onboarding, NAS, direct play, transcode
 ```
 
-On this workstation the Vite cache must live off the project volume: run dev with `OPENSTREAM_VITE_CACHE_DIR="$HOME/Library/Application Support/Orgista/OpenStream/vite-cache"`. `pnpm qa` audits every screen plus the onboarding/Kids Mode flow (rating filter, irreversibility, tamper fail-closed) and needs `CHROME_FOR_TESTING_PATH`.
+On this workstation the Vite cache must live off the project volume: run dev with `OPENSTREAM_VITE_CACHE_DIR="$HOME/Library/Application Support/OpenStream/vite-cache"`. `pnpm qa` audits every screen plus the onboarding/Kids Mode flow (rating filter, irreversibility, tamper fail-closed) and needs `CHROME_FOR_TESTING_PATH`.
 
 `pnpm dev` starts both Vite and the loopback gateway. Open the one-time secure launch URL printed in the terminal; it establishes a per-origin browser session, removes the launch capability from the address bar, and never creates a host-wide loopback cookie. Standalone gateway launches are intended for controlled integrations and require an explicit high-entropy `OPENSTREAM_GATEWAY_TOKEN` shared only with their trusted proxy.
 
@@ -70,9 +72,23 @@ reviewing and updating the app and MCP pins in `scripts/openpencil-security.mjs`
 
 ## Native targets
 
-- `native/apple`: Swift package for macOS, tvOS, and visionOS using public AVFoundation/AVKit APIs.
-- `native/android-xr`: Android/Android XR compatibility target using Media3, runtime HDR/decoder probes, and standards-based immersive handoff.
-- Debug APK: `native/android-xr/dist/openstream-android-xr-debug.apk`
+- `native/android-xr`: native Android tablet/mobile app with Media3, add-ons, metadata, recommendations, device-fit offline downloads, resume, captions, HDR/Dolby indicators, and XR routing.
+- `native/google-tv`: independent Google TV application ID with Leanback launcher, remote focus, Media3 session support, and the shared Android core.
+- `native/apple`: native SwiftUI/AVKit targets for iPhone, iPad, Apple TV, and Apple Vision Pro with capability inspection, resume, device-storage offline media, and network-state signaling.
+- `native/smart-tv`: vendor-native packaged web applications for LG webOS, Samsung Tizen, and Hisense VIDAA.
+- `native/roku`: native Roku SceneGraph/BrightScript channel.
+- `native/openxr`: C++20 inward-facing flat, wide-FOV, fisheye 180°, equirectangular 180°/360°, cubemap, SBS, top-bottom, and multiview projection core for Android XR and Meta Quest OpenXR renderers.
+- `brand/openstream-x-cube.svg`: accessible, reduced-motion-aware animated SVG that morphs from an X into a cube every three seconds.
+
+Platform staging and core checks:
+
+```sh
+pnpm test:tv
+pnpm build:tv
+pnpm test:openxr
+```
+
+Store signing, vendor certificates, and account-bound submissions remain outside source control.
 
 ## Security boundary
 

@@ -1,6 +1,6 @@
-# Orgista Make
+# OpenStream Make
 
-Orgista Make is the conversational layer over OpenPencil. OpenPencil provides the editable canvas
+OpenStream Make is the conversational layer over OpenPencil. OpenPencil provides the editable canvas
 and design tools; Codex interprets each natural-language request and operates those tools through
 the local authenticated MCP server.
 

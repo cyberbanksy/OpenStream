@@ -1,0 +1,10 @@
+{
+  "name": "OpenStream X-to-Cube",
+  "version": 1,
+  "source": "openstream-x-cube.svg",
+  "preview": "preview.html",
+  "canvas": "512x512 transparent",
+  "loopDurationSeconds": 3,
+  "reducedMotionFallback": "static X",
+  "provenance": "Original vector artwork authored for OpenStream in this repository; no external assets or fonts."
+}

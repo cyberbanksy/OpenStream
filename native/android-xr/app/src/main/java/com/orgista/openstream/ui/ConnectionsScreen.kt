@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,7 @@ import com.orgista.openstream.data.NasDiscovery
 import com.orgista.openstream.data.NasEntry
 import com.orgista.openstream.data.Smb
 import com.orgista.openstream.data.StremioClient
+import com.orgista.openstream.data.StremioUrlPolicy
 import com.orgista.openstream.library.LibraryKind
 import com.orgista.openstream.library.LibraryStore
 import com.orgista.openstream.ui.icons.AppIcons
@@ -76,6 +78,7 @@ fun ConnectionsScreen(
     onAddLibrary: (NasConnection, String, LibraryKind) -> Unit,
     onRemoveLibrary: (String) -> Unit,
     onPlayNas: (NasConnection, NasEntry) -> Unit,
+    onAddonsChanged: () -> Unit = {},
 ) {
     var revision by remember { mutableIntStateOf(0) }
     val nasConnections = remember(revision) { store.nasConnections() }
@@ -196,7 +199,7 @@ fun ConnectionsScreen(
             }
         }
 
-        item { SectionLabel("Stremio add-ons") }
+        item { SectionLabel("Discovery & playback add-ons") }
         if (addons.isEmpty()) {
             item { Text("No add-ons yet. Paste an add-on manifest URL to connect one.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
         }
@@ -214,14 +217,39 @@ fun ConnectionsScreen(
                     Icon(AppIcons.Check, contentDescription = null, tint = OpenStreamColors.Green)
                     Column(Modifier.weight(1f)) {
                         Text(addon.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
-                        Text("v${addon.version} · ${addon.transportUrl}", fontSize = 13.sp, color = OpenStreamColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val capabilities = addon.resources.sorted().joinToString(" · ").ifBlank { "manifest" }
+                        Text(
+                            "${StremioUrlPolicy.safeLabel(addon.transportUrl)} · $capabilities",
+                            fontSize = 13.sp,
+                            color = OpenStreamColors.Muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
-                    IconButton(onClick = {
-                        store.removeStremio(addon.id)
-                        revision++
-                    }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                    Switch(
+                        checked = addon.enabled,
+                        onCheckedChange = { enabled ->
+                            store.setStremioEnabled(addon.id, enabled)
+                            revision++
+                            onAddonsChanged()
+                        },
+                    )
+                    if (!addon.builtIn) {
+                        IconButton(onClick = {
+                            store.removeStremio(addon.id)
+                            revision++
+                            onAddonsChanged()
+                        }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                    }
                 }
             }
+        }
+        item {
+            Text(
+                "Personal stream providers (including configured Torrentio/debrid manifests) are opt-in. Paste the manifest with Add-on; its private path stays on this device and is never shown here.",
+                color = OpenStreamColors.Muted,
+                fontSize = 12.sp,
+            )
         }
     }
 
@@ -239,7 +267,10 @@ fun ConnectionsScreen(
             store = store,
             onDone = { added ->
                 showAddAddon = false
-                if (added) revision++
+                if (added) {
+                    revision++
+                    onAddonsChanged()
+                }
             },
         )
     }

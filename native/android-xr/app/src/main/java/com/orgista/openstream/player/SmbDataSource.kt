@@ -54,7 +54,7 @@ class SmbDataSource(private val connection: NasConnection) : BaseDataSource(true
             transferStarted(dataSpec)
             return bytesRemaining
         } catch (error: Exception) {
-            com.orgista.openstream.Logs.error("smb open failed: ${error.message}")
+            com.orgista.openstream.Logs.error("smb open failed (${error::class.simpleName})")
             throw IOException("SMB open failed: ${error.message}", error)
         }
     }
@@ -70,7 +70,7 @@ class SmbDataSource(private val connection: NasConnection) : BaseDataSource(true
             val filled = try {
                 file?.read(readAhead, 0, toRead) ?: -1
             } catch (error: Exception) {
-                com.orgista.openstream.Logs.error("smb read failed: ${error.message}")
+                com.orgista.openstream.Logs.error("smb read failed (${error::class.simpleName})")
                 throw IOException("SMB read failed: ${error.message}", error)
             }
             if (!loggedFirstRead) {

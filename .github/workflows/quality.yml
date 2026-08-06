@@ -1,0 +1,70 @@
+name: OpenStream quality and platform artifacts
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web-server-and-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.5.1
+      - name: Build Android mobile/tablet
+        run: gradle --no-watch-fs -p native/android-xr testDebugUnitTest lintDebug assembleDebug
+      - name: Build Google TV
+        run: gradle --no-watch-fs -p native/google-tv testDebugUnitTest lintDebug assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-android-debug
+          path: native/android-xr/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-google-tv-debug
+          path: native/google-tv/app/build/outputs/apk/debug/app-debug.apk
+
+  apple-smart-tv-and-openxr-core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test Apple shared core
+        run: swift test --package-path native/apple --scratch-path /tmp/openstream-apple-build --jobs 1
+      - name: Compile Apple platform apps
+        run: |
+          xcodebuild -project native/apple/Apps/OpenStreamApps.xcodeproj -target 'OpenStream iOS' -sdk iphonesimulator -configuration Debug SYMROOT=/tmp/openstream-ios-products OBJROOT=/tmp/openstream-ios-objects CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project native/apple/Apps/OpenStreamApps.xcodeproj -target 'OpenStream tvOS' -sdk appletvsimulator -configuration Debug SYMROOT=/tmp/openstream-tvos-products OBJROOT=/tmp/openstream-tvos-objects CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project native/apple/Apps/OpenStreamApps.xcodeproj -target 'OpenStream visionOS' -sdk xrsimulator -configuration Debug SYMROOT=/tmp/openstream-vision-products OBJROOT=/tmp/openstream-vision-objects CODE_SIGNING_ALLOWED=NO build
+      - name: Test native OpenXR projection core
+        run: scripts/openxr-core-test.sh
+      - name: Build television staging packages
+        run: node scripts/build-tv-packages.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-smart-tv-staging
+          path: dist/tv/artifacts/*

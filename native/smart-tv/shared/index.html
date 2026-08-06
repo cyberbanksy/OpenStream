@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#070909" />
+    <title>OpenStream</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header>
+        <span class="wordmark">OpenStream</span>
+        <nav aria-label="Primary">
+          <button class="focusable selected" data-section="discover">Discover</button>
+          <button class="focusable" data-section="library">Library</button>
+        </nav>
+        <span id="network" class="status">ONLINE</span>
+        <time id="clock"></time>
+      </header>
+
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <span class="eyebrow">FEATURED</span>
+          <h1 id="hero-title">Northstar</h1>
+          <div id="hero-meta" class="meta">2026 · 2h 14m · 4K</div>
+          <p id="hero-summary">A signal from the edge of the solar system draws a salvage crew into an impossible orbit.</p>
+          <div class="actions">
+            <button id="play" class="focusable primary">▶ Play</button>
+            <button id="details" class="focusable">Details</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail" aria-labelledby="rail-title">
+        <h2 id="rail-title">Recommended for you</h2>
+        <div id="cards" class="cards"></div>
+      </section>
+    </main>
+
+    <section id="player-shell" class="player-shell hidden" aria-label="Video player">
+      <video id="player" controls playsinline preload="metadata"></video>
+      <button id="close-player" class="focusable player-close" aria-label="Close player">✕</button>
+      <div id="format-indicator" class="format-indicator hidden"></div>
+    </section>
+
+    <dialog id="details-dialog">
+      <h2>OpenStream</h2>
+      <p>Direct playback with system audio and caption controls, saved resume position, add-on streams, and device HDR signaling.</p>
+      <button id="close-details" class="focusable primary">Done</button>
+    </dialog>
+
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>

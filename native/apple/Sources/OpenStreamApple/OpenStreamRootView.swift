@@ -8,13 +8,32 @@ public struct OpenStreamRootView: View {
         case connections
         case play
         case details
+        case offline
         case media(Int)
     }
 
     @FocusState private var focus: FocusTarget?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSection = "Discover"
+    private let onPlay: @MainActor () -> Void
+    private let onDetails: @MainActor () -> Void
+    private let onOffline: @MainActor () -> Void
+    private let offlineLabel: String
+    private let networkLabel: String
 
-    public init() {}
+    public init(
+        onPlay: @escaping @MainActor () -> Void = {},
+        onDetails: @escaping @MainActor () -> Void = {},
+        offlineLabel: String = "Make available offline",
+        networkLabel: String = "ONLINE",
+        onOffline: @escaping @MainActor () -> Void = {}
+    ) {
+        self.onPlay = onPlay
+        self.onDetails = onDetails
+        self.offlineLabel = offlineLabel
+        self.networkLabel = networkLabel
+        self.onOffline = onOffline
+    }
 
     public var body: some View {
         ZStack {
@@ -41,13 +60,17 @@ public struct OpenStreamRootView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                topBar
-                hero
-                Spacer(minLength: 20)
-                continueWatching
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    topBar
+                    hero
+                    Spacer(minLength: 20)
+                    continueWatching
+                }
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 64)
+            .scrollIndicators(.hidden)
+            .padding(.horizontal, compact ? 20 : 64)
             .padding(.top, 22)
             .padding(.bottom, 36)
         }
@@ -58,40 +81,69 @@ public struct OpenStreamRootView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 28) {
+        Group {
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        brand
+                        Spacer()
+                        networkStatus
+                        searchButton
+                    }
+                    ScrollView(.horizontal) { navigation }
+                        .scrollIndicators(.hidden)
+                }
+            } else {
+                HStack(spacing: 28) {
+                    brand
+                    Spacer()
+                    navigation
+                    Spacer()
+                    networkStatus
+                    searchButton
+                }
+            }
+        }
+        .frame(height: compact ? 112 : 64)
+    }
+
+    private var compact: Bool { horizontalSizeClass == .compact }
+
+    private var brand: some View {
+        HStack(spacing: 12) {
             HStack(spacing: 12) {
-                Image("openstream-mark", bundle: .module)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 38, height: 38)
-                    .clipShape(Circle())
                 Text("OpenStream")
                     .font(.system(size: 28, weight: .bold))
-                Text("by Orgista")
+                Text("by Cyberbanksy")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
-
-            Spacer()
-
-            HStack(spacing: 14) {
-                navigationButton("Discover", target: .discover)
-                navigationButton("Library", target: .library)
-                navigationButton("Live", target: .live)
-                navigationButton("Connections", target: .connections)
-            }
-
-            Spacer()
-
-            Button(action: {}) {
-                Image(systemName: "magnifyingglass")
-                    .frame(width: 42, height: 42)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Search")
         }
-        .frame(height: 64)
+    }
+
+    private var navigation: some View {
+        HStack(spacing: compact ? 4 : 14) {
+            navigationButton("Discover", target: .discover)
+            navigationButton("Library", target: .library)
+            navigationButton("Live", target: .live)
+            navigationButton("Connections", target: .connections)
+        }
+    }
+
+    private var networkStatus: some View {
+        Text(networkLabel)
+            .font(.caption.bold())
+            .foregroundStyle(networkLabel == "OFFLINE" ? Color.orange : Color.green)
+    }
+
+    private var searchButton: some View {
+        Button(action: {}) {
+            Image(systemName: "magnifyingglass")
+                .frame(width: 42, height: 42)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search")
     }
 
     private func navigationButton(_ title: String, target: FocusTarget) -> some View {
@@ -122,7 +174,7 @@ public struct OpenStreamRootView: View {
                     .foregroundStyle(Color.cyan)
 
                 Text("Northstar")
-                    .font(.system(size: 64, weight: .heavy))
+                    .font(.system(size: compact ? 44 : 64, weight: .heavy))
 
                 HStack(spacing: 10) {
                     Text("2025")
@@ -140,22 +192,30 @@ public struct OpenStreamRootView: View {
                     .lineSpacing(5)
                     .frame(maxWidth: 620, alignment: .leading)
 
-                HStack(spacing: 14) {
-                    primaryAction
-                    secondaryAction
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 14) {
+                        primaryAction
+                        secondaryAction
+                        offlineAction
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        primaryAction
+                        secondaryAction
+                        offlineAction
+                    }
                 }
                 .padding(.top, 2)
             }
-            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: compact ? .infinity : 700, alignment: .leading)
 
             Spacer()
         }
-        .frame(maxHeight: 470)
+        .frame(minHeight: compact ? 560 : 470, maxHeight: compact ? nil : 470)
     }
 
     @ViewBuilder
     private var primaryAction: some View {
-        let button = Button(action: {}) {
+        let button = Button(action: onPlay) {
             Label("Stream", systemImage: "play.fill")
                 .font(.system(size: 18, weight: .bold))
                 .frame(minWidth: 160, minHeight: 54)
@@ -165,7 +225,7 @@ public struct OpenStreamRootView: View {
         #if os(visionOS)
         button.buttonStyle(.borderedProminent)
         #else
-        if #available(macOS 26.0, tvOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
             button.buttonStyle(.glassProminent)
         } else {
             button.buttonStyle(.borderedProminent)
@@ -175,7 +235,7 @@ public struct OpenStreamRootView: View {
 
     @ViewBuilder
     private var secondaryAction: some View {
-        let button = Button(action: {}) {
+        let button = Button(action: onDetails) {
             Label("Details", systemImage: "info.circle")
                 .font(.system(size: 18, weight: .bold))
                 .frame(minWidth: 160, minHeight: 54)
@@ -185,7 +245,30 @@ public struct OpenStreamRootView: View {
         #if os(visionOS)
         button.buttonStyle(.bordered)
         #else
-        if #available(macOS 26.0, tvOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
+            button.buttonStyle(.glass)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var offlineAction: some View {
+        let button = Button(action: onOffline) {
+            Label(
+                offlineLabel,
+                systemImage: offlineLabel == "Available offline" ? "checkmark.circle.fill" : "arrow.down.circle"
+            )
+            .font(.system(size: 17, weight: .bold))
+            .frame(minWidth: 210, minHeight: 54)
+        }
+        .focused($focus, equals: .offline)
+
+        #if os(visionOS)
+        button.buttonStyle(.bordered)
+        #else
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
             button.buttonStyle(.glass)
         } else {
             button.buttonStyle(.bordered)

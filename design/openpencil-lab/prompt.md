@@ -1,6 +1,6 @@
 # OpenPencil smoke-test brief
 
-Create a polished 16:9 tvOS source dashboard for OpenStream.orgista.com, an independent
+Create a polished 16:9 tvOS source dashboard for OpenStream, an independent
 streaming app that combines Stremio-style source discovery with Infuse-style local and
 NAS playback.
 

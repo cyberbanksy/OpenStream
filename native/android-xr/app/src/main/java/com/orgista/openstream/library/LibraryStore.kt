@@ -31,6 +31,22 @@ class LibraryStore(context: Context) {
         get() = prefs.getString(KEY_OMDB, "") ?: ""
         set(value) { prefs.edit().putString(KEY_OMDB, value.trim()).apply() }
 
+    /** Metadata keys are never used until the viewer explicitly opts in. */
+    var metadataOptIn: Boolean
+        get() = prefs.getBoolean(KEY_METADATA_OPT_IN, false)
+        set(value) { prefs.edit().putBoolean(KEY_METADATA_OPT_IN, value).apply() }
+
+    fun reusableTmdbCredential(): String =
+        MetadataCredentialPolicy.reusableCredential(metadataOptIn, tmdbApiKey)
+
+    fun reusableOmdbCredential(): String =
+        MetadataCredentialPolicy.reusableCredential(metadataOptIn, omdbApiKey)
+
+    /** When on, the player selects a subtitle track automatically on start. */
+    var autoSubtitles: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_SUBS, false)
+        set(value) { prefs.edit().putBoolean(KEY_AUTO_SUBS, value).apply() }
+
     fun folders(): List<LibraryFolder> {
         val raw = prefs.getString(KEY_FOLDERS, "[]") ?: "[]"
         return try {
@@ -77,5 +93,7 @@ class LibraryStore(context: Context) {
         const val KEY_FOLDERS = "folders.v1"
         const val KEY_TMDB = "tmdbApiKey.v1"
         const val KEY_OMDB = "omdbApiKey.v1"
+        const val KEY_METADATA_OPT_IN = "metadataOptIn.v1"
+        const val KEY_AUTO_SUBS = "autoSubtitles.v1"
     }
 }

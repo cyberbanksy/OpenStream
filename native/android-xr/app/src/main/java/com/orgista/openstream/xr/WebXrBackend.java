@@ -39,6 +39,7 @@ public final class WebXrBackend implements ImmersiveVideoBackend {
         return switch (projection) {
             case EQUIRECTANGULAR_180, FISHEYE_180 -> "180";
             case EQUIRECTANGULAR_360 -> "360";
+            case CUBEMAP_360 -> "cube";
             case WIDE_FIELD_OF_VIEW -> "wide";
             case FLAT -> "flat";
         };

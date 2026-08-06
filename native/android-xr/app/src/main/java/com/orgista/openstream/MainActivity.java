@@ -179,13 +179,8 @@ public final class MainActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
 
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.openstream_mark);
-        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        bar.addView(logo, new LinearLayout.LayoutParams(dp(46), dp(46)));
-
         TextView brand = text("OpenStream", 22, WHITE, Typeface.BOLD);
-        brand.setPadding(dp(10), 0, dp(44), 0);
+        brand.setPadding(0, 0, dp(44), 0);
         bar.addView(brand);
 
         String[] destinations = {"Discover", "Library", "Live", "Connections"};
