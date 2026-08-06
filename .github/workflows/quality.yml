@@ -97,8 +97,8 @@ jobs:
             /tmp/openstream-vision-products/Debug-xrsimulator/OpenStream visionOS.app
       - name: Test native OpenXR projection core
         run: |
-          scripts/openxr-core-test.sh
-          scripts/quest-layer-test.sh
+          sh scripts/openxr-core-test.sh
+          sh scripts/quest-layer-test.sh
       - name: Build television staging packages
         run: node scripts/build-tv-packages.mjs
       - uses: actions/upload-artifact@v4

@@ -88,7 +88,7 @@ Platform staging and core checks:
 pnpm test:tv
 pnpm build:tv
 pnpm test:openxr
-scripts/quest-layer-test.sh
+sh scripts/quest-layer-test.sh
 OPENSTREAM_ANDROID_XR_BUILD_DIR=/tmp/openstream-android-xr-scene-build gradle --no-watch-fs -p native/android-xr-scene testDebugUnitTest lintDebug assembleDebug
 OPENSTREAM_QUEST_BUILD_DIR=/tmp/openstream-meta-quest-build gradle --no-watch-fs -p native/meta-quest lintDebug assembleDebug
 ```

@@ -15,7 +15,8 @@ Android XR SceneCore and Meta Quest OpenXR video adapters.
 - Deterministic ready/play/pause/seek/end/stop session transitions, including
   live-stream behavior.
 
-Run both native suites with `scripts/openxr-core-test.sh`.
+Run both native suites with `sh scripts/openxr-core-test.sh` and
+`sh scripts/quest-layer-test.sh`.
 
 The directory is also a standalone CMake project. Configure it with
 `cmake -S native/openxr -B /tmp/openstream-xr-cmake -DBUILD_TESTING=ON`,

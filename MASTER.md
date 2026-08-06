@@ -122,8 +122,8 @@ pnpm build
 node scripts/stremio-addons.mjs
 node --test scripts/tv-core.node-test.mjs
 node scripts/build-tv-packages.mjs
-scripts/openxr-core-test.sh
-scripts/quest-layer-test.sh
+sh scripts/openxr-core-test.sh
+sh scripts/quest-layer-test.sh
 swift test --package-path native/apple --scratch-path /tmp/openstream-apple-build --jobs 1
 gradle --no-watch-fs --project-cache-dir /tmp/openstream-gradle-project-cache -p native/android-xr testDebugUnitTest
 gradle --no-watch-fs --project-cache-dir /tmp/openstream-gradle-project-cache -p native/android-xr lintDebug
