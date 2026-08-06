@@ -29,3 +29,11 @@ clang++ \
   -o "$build_root/immersive-video-session-test"
 
 "$build_root/immersive-video-session-test"
+
+cmake \
+  -S "$project_root/native/openxr" \
+  -B "$build_root/cmake" \
+  -DBUILD_TESTING=ON \
+  -DCMAKE_BUILD_TYPE=Debug
+cmake --build "$build_root/cmake" --parallel
+ctest --test-dir "$build_root/cmake" --output-on-failure

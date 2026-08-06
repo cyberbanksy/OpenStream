@@ -17,6 +17,13 @@ Android XR SceneCore and Meta Quest OpenXR video adapters.
 
 Run both native suites with `scripts/openxr-core-test.sh`.
 
+The directory is also a standalone CMake project. Configure it with
+`cmake -S native/openxr -B /tmp/openstream-xr-cmake -DBUILD_TESTING=ON`,
+then run `cmake --build /tmp/openstream-xr-cmake` and
+`ctest --test-dir /tmp/openstream-xr-cmake --output-on-failure`. The
+`openstream_xr_core` static library is position-independent so both Android
+NDK shared libraries and native OpenXR executables can link it unchanged.
+
 ## Runtime adapter boundary
 
 Both headset adapters must probe the real runtime and decoder, fill
