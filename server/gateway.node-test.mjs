@@ -89,6 +89,31 @@ test("gateway refuses to start without a safe session token", () => {
   assert.throws(() => createGatewayServer({ sessionToken: `${"a".repeat(32)}\r\nInjected: true` }), /base64url/);
 });
 
+test("gateway exposes the cached Netflix Top 10 snapshot through the authenticated catalog route", async () => {
+  const snapshot = {
+    country: "US",
+    source: "netflix-public-trending",
+    cadence: "daily",
+    refreshedAt: 1234,
+    stale: false,
+    lists: { overall: [{ rank: 1, title: "The Hawk" }], movies: [], series: [] },
+  };
+  const gateway = createGatewayServer({
+    sessionToken: GATEWAY_SESSION_TOKEN,
+    logger: null,
+    metadataService: { getSnapshot: () => ({ enabled: false, movies: [] }) },
+    netflixTop10Service: { getSnapshot: () => snapshot },
+  });
+  const gatewayPort = await listen(gateway);
+  try {
+    const response = await gatewayRequest(gatewayPort, "/api/catalog/netflix/top10");
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, snapshot);
+  } finally {
+    await close(gateway);
+  }
+});
+
 test("gateway enforces connector boundaries and server-side handoffs", async () => {
   const calls = [];
   let servicePort;

@@ -4,6 +4,8 @@ OpenStream is an independent, multi-platform media application maintained by [Cy
 
 Operational configuration, metadata credential rules, and playback behavior are documented in [`MASTER.md`](MASTER.md).
 
+The account-free Netflix regional Top 10 cache, its daily ranking algorithm, fallback, and offline emulator are documented in [`docs/netflix-top10.md`](docs/netflix-top10.md).
+
 ## Kids Mode
 
 First launch asks who watches on the device. Choosing **Kids Mode** walks a guardian through a rating cap (Little kids G/TV-Y, Big kids PG/TV-PG, or Teens PG-13/TV-14), an optional blocklist of titles or words, and an explicit irreversible confirmation. Once enabled:
@@ -52,6 +54,7 @@ pnpm dev
 pnpm qa
 pnpm test
 pnpm build
+pnpm netflix:top10:emulate
 pnpm openpencil:smoke
 pnpm make:new -- "Design a tvOS media dashboard"
 pnpm make -- "Make the focused card more obvious"

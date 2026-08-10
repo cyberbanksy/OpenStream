@@ -15,6 +15,8 @@
     "test:watch": "vitest",
     "preview": "vite preview --configLoader runner",
     "gateway": "node server/openstream-gateway.mjs",
+    "netflix:top10": "node scripts/netflix-top10.mjs",
+    "netflix:top10:emulate": "node scripts/netflix-top10.mjs --emulate",
     "qa": "node scripts/qa.mjs",
     "openpencil:smoke": "node scripts/openpencil-smoke.mjs",
     "make": "node scripts/design-agent.mjs",

@@ -3,6 +3,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "./logger.mjs";
 import { createTmdbMetadataService } from "./metadata.mjs";
+import { createNetflixTop10Service } from "./netflix-top10.mjs";
 import { listNasDirectory, resolveWithinRoot, streamNasFile, validateNasRoot } from "./nas.mjs";
 import {
   authorizeTarget,
@@ -582,7 +583,7 @@ function redeemXrHandoff(value, ownerId) {
   };
 }
 
-async function routeRequest(request, response, session, logger, metadataService) {
+async function routeRequest(request, response, session, logger, metadataService, netflixTop10Service) {
   const origin = request.headers.origin;
   const requestUrl = parseCanonicalRequestTarget(request.url ?? "/", {
     origin: `http://${urlHost}:${port}`,
@@ -618,6 +619,9 @@ async function routeRequest(request, response, session, logger, metadataService)
   }
   if (requestUrl.pathname === "/api/metadata/recent" && request.method === "GET") {
     return sendJson(response, 200, metadataService.getSnapshot(), origin);
+  }
+  if (requestUrl.pathname === "/api/catalog/netflix/top10" && request.method === "GET") {
+    return sendJson(response, 200, netflixTop10Service.getSnapshot(), origin);
   }
 
   if (requestUrl.pathname === "/api/arr/options" && request.method === "GET") {
@@ -794,6 +798,7 @@ export function createGatewayServer({
   sessionToken = process.env.OPENSTREAM_GATEWAY_TOKEN,
   logger = createLogger({ mirrorToConsole: false }),
   metadataService = createTmdbMetadataService(),
+  netflixTop10Service = createNetflixTop10Service(),
 } = {}) {
   const session = createGatewaySession(sessionToken);
   return http.createServer((request, response) => {
@@ -802,7 +807,7 @@ export function createGatewayServer({
     response.on("finish", () => {
       void logger?.info("gateway", `${request.method} ${loggedPath} -> ${response.statusCode}`, { ms: Date.now() - startedAt });
     });
-    void routeRequest(request, response, session, logger, metadataService).catch((error) => {
+    void routeRequest(request, response, session, logger, metadataService, netflixTop10Service).catch((error) => {
       const origin = request.headers.origin;
       const message = error instanceof SyntaxError ? "Request JSON is invalid." : error.message || "Gateway request failed.";
       const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 400;
@@ -823,12 +828,23 @@ if (isEntrypoint) {
   const metadataService = createTmdbMetadataService({
     onError: (error) => { void logger.warn("metadata", error.message); },
   });
-  const server = createGatewayServer({ sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN, logger, metadataService });
-  void metadataService.start().catch((error) => logger.warn("metadata", error.message)).finally(() => {
+  const netflixTop10Service = createNetflixTop10Service({
+    onError: (error) => { void logger.warn("netflix-top10", error.message); },
+  });
+  const server = createGatewayServer({
+    sessionToken: process.env.OPENSTREAM_GATEWAY_TOKEN,
+    logger,
+    metadataService,
+    netflixTop10Service,
+  });
+  void Promise.allSettled([metadataService.start(), netflixTop10Service.start()]).finally(() => {
     server.listen(port, host, () => {
       console.log(`OpenStream secure gateway listening on http://${host}:${port}`);
       console.log(`OpenStream gateway logs: ${logger.directory}`);
     });
   });
-  server.on("close", () => metadataService.close());
+  server.on("close", () => {
+    metadataService.close();
+    netflixTop10Service.close();
+  });
 }
