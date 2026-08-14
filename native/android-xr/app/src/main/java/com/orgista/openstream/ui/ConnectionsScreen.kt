@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -117,6 +118,7 @@ fun ConnectionsScreen(
     var showAddNas by remember { mutableStateOf(false) }
     var showAddAddon by remember { mutableStateOf(false) }
     var showAddYoutube by remember { mutableStateOf(false) }
+    var deletingCollection by remember { mutableStateOf<SourceCollection?>(null) }
     var testingAddonId by remember { mutableStateOf<String?>(null) }
     var addonTestResults by remember { mutableStateOf<Map<String, com.orgista.openstream.data.StremioAddonTestResult>>(emptyMap()) }
     var lanSession by remember { mutableStateOf<LanSetupSession?>(null) }
@@ -221,10 +223,7 @@ fun ConnectionsScreen(
                                 )
                             }
                         },
-                    ) { Text(if (lanStarting) "Starting…" else "Set up over Wi-Fi") }
-                    OutlinedButton(onClick = { showAddYoutube = true }) { Text("+ YouTube") }
-                    OutlinedButton(onClick = { showAddAddon = true }) { Text("+ Add-on") }
-                    Button(onClick = { showAddNas = true }) { Text("+ NAS share") }
+                    ) { Text(if (lanStarting) "Starting…" else "Web Management") }
                 }
             }
         }
@@ -321,7 +320,19 @@ fun ConnectionsScreen(
                     SourceSectionHeading(
                         title = "Libraries",
                         info = "Folders added to your OpenStream library. Remove a folder here without deleting its files from the server.",
-                    )
+                    ) {
+                        DeleteModeButton(
+                            collection = SourceCollection.LIBRARIES,
+                            activeCollection = deletingCollection,
+                            itemCount = libraries.size,
+                            onClick = {
+                                deletingCollection = SourceManagementPolicy.nextDeleteCollection(
+                                    SourceCollection.LIBRARIES,
+                                    deletingCollection,
+                                )
+                            },
+                        )
+                    }
                     if (indexing) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OpenStreamLoadingIndicator(role = LoadingIndicatorRole.INLINE)
@@ -351,10 +362,21 @@ fun ConnectionsScreen(
                             color = OpenStreamColors.Muted,
                         )
                     }
-                    IconButton(onClick = {
-                        onRemoveLibrary(folder.id)
-                        revision++
-                    }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                    AnimatedVisibility(
+                        visible = SourceManagementPolicy.showRemoveControl(SourceCollection.LIBRARIES, deletingCollection),
+                    ) {
+                        IconButton(onClick = {
+                            onRemoveLibrary(folder.id)
+                            if (libraries.size == 1) deletingCollection = null
+                            revision++
+                        }) {
+                            Icon(
+                                AppIcons.Close,
+                                contentDescription = "Delete ${folder.connectionName} library",
+                                tint = OpenStreamColors.Danger,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -363,7 +385,23 @@ fun ConnectionsScreen(
             SourceSectionHeading(
                 title = "NAS shares",
                 info = "Network storage connected over SMB. Tap a share to browse it or add one of its folders to the library.",
-            )
+            ) {
+                TextButton(onClick = {
+                    deletingCollection = null
+                    showAddNas = true
+                }) { Text("Add NAS share") }
+                DeleteModeButton(
+                    collection = SourceCollection.NAS_SHARES,
+                    activeCollection = deletingCollection,
+                    itemCount = nasConnections.size,
+                    onClick = {
+                        deletingCollection = SourceManagementPolicy.nextDeleteCollection(
+                            SourceCollection.NAS_SHARES,
+                            deletingCollection,
+                        )
+                    },
+                )
+            }
         }
         if (nasConnections.isEmpty()) {
             item { Text("No NAS shares yet. Add your server's host and share name.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
@@ -375,10 +413,21 @@ fun ConnectionsScreen(
                     Text(connection.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
                     Text("smb://${connection.host}/${connection.share}", fontSize = 13.sp, color = OpenStreamColors.Muted)
                 }
-                IconButton(onClick = {
-                    store.removeNas(connection.id)
-                    revision++
-                }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                AnimatedVisibility(
+                    visible = SourceManagementPolicy.showRemoveControl(SourceCollection.NAS_SHARES, deletingCollection),
+                ) {
+                    IconButton(onClick = {
+                        store.removeNas(connection.id)
+                        if (nasConnections.size == 1) deletingCollection = null
+                        revision++
+                    }) {
+                        Icon(
+                            AppIcons.Close,
+                            contentDescription = "Delete NAS share ${connection.name}",
+                            tint = OpenStreamColors.Danger,
+                        )
+                    }
+                }
             }
         }
 
@@ -428,7 +477,23 @@ fun ConnectionsScreen(
             SourceSectionHeading(
                 title = "YouTube",
                 info = "Add an exact channel or @handle. Every enabled channel appears inside the YouTube group and contributes likely new uploads to Up Next. No YouTube API key is required.",
-            )
+            ) {
+                TextButton(onClick = {
+                    deletingCollection = null
+                    showAddYoutube = true
+                }) { Text("Add YouTube channel") }
+                DeleteModeButton(
+                    collection = SourceCollection.YOUTUBE,
+                    activeCollection = deletingCollection,
+                    itemCount = youtubeChannels.size,
+                    onClick = {
+                        deletingCollection = SourceManagementPolicy.nextDeleteCollection(
+                            SourceCollection.YOUTUBE,
+                            deletingCollection,
+                        )
+                    },
+                )
+            }
         }
         if (youtubeChannels.isEmpty()) {
             item { Text("No YouTube channels yet.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
@@ -455,11 +520,22 @@ fun ConnectionsScreen(
                         onAddonsChanged()
                     },
                 )
-                IconButton(onClick = {
-                    store.removeYoutubeChannel(channel.id)
-                    revision++
-                    onAddonsChanged()
-                }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                AnimatedVisibility(
+                    visible = SourceManagementPolicy.showRemoveControl(SourceCollection.YOUTUBE, deletingCollection),
+                ) {
+                    IconButton(onClick = {
+                        store.removeYoutubeChannel(channel.id)
+                        if (youtubeChannels.size == 1) deletingCollection = null
+                        revision++
+                        onAddonsChanged()
+                    }) {
+                        Icon(
+                            AppIcons.Close,
+                            contentDescription = "Delete YouTube channel ${channel.name}",
+                            tint = OpenStreamColors.Danger,
+                        )
+                    }
+                }
             }
         }
 
@@ -467,7 +543,23 @@ fun ConnectionsScreen(
             SourceSectionHeading(
                 title = "Add-Ons",
                 info = "Add-ons provide catalogs, metadata, or HTTPS playback routes. Private manifest paths stay on this device.",
-            )
+            ) {
+                TextButton(onClick = {
+                    deletingCollection = null
+                    showAddAddon = true
+                }) { Text("Add add-on") }
+                DeleteModeButton(
+                    collection = SourceCollection.ADD_ONS,
+                    activeCollection = deletingCollection,
+                    itemCount = addons.size,
+                    onClick = {
+                        deletingCollection = SourceManagementPolicy.nextDeleteCollection(
+                            SourceCollection.ADD_ONS,
+                            deletingCollection,
+                        )
+                    },
+                )
+            }
         }
         if (addons.isEmpty()) {
             item { Text("No add-ons yet. Paste an add-on manifest URL to connect one.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
@@ -520,11 +612,22 @@ fun ConnectionsScreen(
                         onAddonsChanged()
                     },
                 )
-                IconButton(onClick = {
-                    store.removeStremio(addon.id)
-                    revision++
-                    onAddonsChanged()
-                }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+                AnimatedVisibility(
+                    visible = SourceManagementPolicy.showRemoveControl(SourceCollection.ADD_ONS, deletingCollection),
+                ) {
+                    IconButton(onClick = {
+                        store.removeStremio(addon.id)
+                        if (addons.size == 1) deletingCollection = null
+                        revision++
+                        onAddonsChanged()
+                    }) {
+                        Icon(
+                            AppIcons.Close,
+                            contentDescription = "Delete add-on ${addon.name}",
+                            tint = OpenStreamColors.Danger,
+                        )
+                    }
+                }
             }
         }
 
@@ -573,7 +676,11 @@ fun ConnectionsScreen(
 }
 
 @Composable
-private fun SourceSectionHeading(title: String, info: String) {
+private fun SourceSectionHeading(
+    title: String,
+    info: String,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
     var showInfo by remember(title) { mutableStateOf(false) }
     val layout = SourceSectionLayoutPolicy.current
     Row(
@@ -587,18 +694,24 @@ private fun SourceSectionHeading(title: String, info: String) {
             fontWeight = FontWeight.ExtraBold,
             color = OpenStreamColors.Text,
         )
-        if (layout.showSectionInfo) {
-            IconButton(
-                onClick = { showInfo = true },
-                modifier = Modifier.size(48.dp).semantics { contentDescription = "$title information" },
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = androidx.compose.ui.graphics.Color.Transparent,
-                    border = BorderStroke(1.dp, OpenStreamColors.Muted),
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            actions()
+            if (layout.showSectionInfo) {
+                IconButton(
+                    onClick = { showInfo = true },
+                    modifier = Modifier.size(48.dp).semantics { contentDescription = "$title information" },
                 ) {
-                    androidx.compose.foundation.layout.Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                        Text("i", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.TextSoft)
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = androidx.compose.ui.graphics.Color.Transparent,
+                        border = BorderStroke(1.dp, OpenStreamColors.Muted),
+                    ) {
+                        androidx.compose.foundation.layout.Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                            Text("i", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.TextSoft)
+                        }
                     }
                 }
             }
@@ -610,6 +723,23 @@ private fun SourceSectionHeading(title: String, info: String) {
             title = { Text(title) },
             text = { Text(info) },
             confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Done") } },
+        )
+    }
+}
+
+@Composable
+private fun DeleteModeButton(
+    collection: SourceCollection,
+    activeCollection: SourceCollection?,
+    itemCount: Int,
+    onClick: () -> Unit,
+) {
+    if (!SourceManagementPolicy.showDeleteAction(itemCount)) return
+    val active = SourceManagementPolicy.showRemoveControl(collection, activeCollection)
+    TextButton(onClick = onClick) {
+        Text(
+            SourceManagementPolicy.deleteActionLabel(collection, active),
+            color = if (active) OpenStreamColors.Danger else OpenStreamColors.TextSoft,
         )
     }
 }

@@ -97,7 +97,9 @@ class LanSetupServerTest {
             val rootUrl = URL("http://${numeric.host}:${numeric.port}/")
             val get = rootUrl.openConnection() as HttpURLConnection
             assertEquals(200, get.responseCode)
-            assertTrue(get.inputStream.bufferedReader().use { it.readText() }.contains("Add a source"))
+            val page = get.inputStream.bufferedReader().use { it.readText() }
+            assertTrue(page.contains("WEB MANAGEMENT"))
+            assertTrue(page.contains("Add a source"))
 
             val manifest = "https://root.example/manifest.json"
             val body = "manifest=" + URLEncoder.encode(manifest, StandardCharsets.UTF_8.name())

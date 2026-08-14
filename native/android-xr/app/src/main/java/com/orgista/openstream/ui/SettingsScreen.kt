@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -887,7 +888,12 @@ private fun ArrDownloadDestinationOption(
 }
 
 @Composable
-internal fun Panel(title: String, info: String? = null, content: @Composable () -> Unit) {
+internal fun Panel(
+    title: String,
+    info: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable () -> Unit,
+) {
     var showInfo by remember(title) { mutableStateOf(false) }
     val layout = SettingsSectionLayoutPolicy.current
     Column(
@@ -908,8 +914,11 @@ internal fun Panel(title: String, info: String? = null, content: @Composable () 
                 fontWeight = FontWeight.ExtraBold,
                 color = OpenStreamColors.Text,
             )
-            if (info != null) {
-                SettingsInfoButton(label = "$title information", onClick = { showInfo = true })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                actions()
+                if (info != null) {
+                    SettingsInfoButton(label = "$title information", onClick = { showInfo = true })
+                }
             }
         }
         content()
