@@ -583,15 +583,13 @@ fun ConnectionsScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    addonTestResults[addon.id]?.let { result ->
-                        Text(
-                            result.message,
-                            fontSize = 12.sp,
-                            color = if (result.working) OpenStreamColors.Green else OpenStreamColors.Danger,
-                        )
-                    }
                 }
-                TextButton(
+                val testing = testingAddonId == addon.id
+                val testResult = addonTestResults[addon.id]
+                IconButton(
+                    modifier = Modifier.semantics {
+                        contentDescription = AddonTestIndicatorPolicy.contentDescription(addon.name, testing, testResult)
+                    },
                     enabled = testingAddonId == null,
                     onClick = {
                         testingAddonId = addon.id
@@ -603,7 +601,29 @@ fun ConnectionsScreen(
                             Logs.event("add-on test ${if (result.working) "passed" else "failed"}: ${addon.name}")
                         }
                     },
-                ) { Text(if (testingAddonId == addon.id) "Testing…" else "Test") }
+                ) {
+                    when (AddonTestIndicatorPolicy.state(testing, testResult)) {
+                        AddonTestIndicatorState.READY -> Icon(
+                            AppIcons.Refresh,
+                            contentDescription = null,
+                            tint = OpenStreamColors.TextSoft,
+                            modifier = Modifier.size(21.dp),
+                        )
+                        AddonTestIndicatorState.TESTING -> OpenStreamLoadingIndicator(role = LoadingIndicatorRole.INLINE)
+                        AddonTestIndicatorState.PASSED -> Icon(
+                            AppIcons.Check,
+                            contentDescription = null,
+                            tint = OpenStreamColors.Green,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        AddonTestIndicatorState.FAILED -> Icon(
+                            AppIcons.Close,
+                            contentDescription = null,
+                            tint = OpenStreamColors.Danger,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
                 Switch(
                     checked = addon.enabled,
                     onCheckedChange = { enabled ->
