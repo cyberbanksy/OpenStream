@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <!-- User-configured IPTV providers commonly expose only HTTP. Every
+         in-app client still validates its own endpoint policy; ARR remains
+         limited to HTTPS or private-LAN HTTP. -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

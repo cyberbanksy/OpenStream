@@ -1,6 +1,7 @@
 package com.orgista.openstream
 
 import android.app.ActivityManager
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -10,7 +11,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import com.orgista.openstream.ui.OpenStreamApp
+import com.orgista.openstream.ui.OpenStreamLaunchGate
 import com.orgista.openstream.ui.OpenStreamTheme
+import com.orgista.openstream.device.DevicePresentationPolicy
+import com.orgista.openstream.device.OrientationPreference
+import com.orgista.openstream.xr.XrRuntimeProbe
 
 /**
  * Single-activity native OpenStream app. Runs edge-to-edge with the *status*
@@ -26,15 +31,31 @@ class NativeAppActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         logRecentAbnormalExit()
         Logs.event("app started")
+        applyDeviceOrientation()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         @Suppress("DEPRECATION")
         run { window.navigationBarColor = android.graphics.Color.TRANSPARENT }
         if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         setContent {
             OpenStreamTheme {
-                OpenStreamApp(onExit = { finish() })
+                OpenStreamLaunchGate {
+                    OpenStreamApp(onExit = { finish() })
+                }
             }
         }
+    }
+
+    private fun applyDeviceOrientation() {
+        val runtime = XrRuntimeProbe.inspect(this)
+        val preference = DevicePresentationPolicy.orientation(
+            smallestWidthDp = resources.configuration.smallestScreenWidthDp,
+            immersiveRuntime = runtime.immersiveRuntimeAvailable(),
+        )
+        requestedOrientation = when (preference) {
+            OrientationPreference.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            OrientationPreference.USER_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+        }
+        Logs.event("device presentation: ${preference.name.lowercase()} · ${runtime.runtimeLabel()}")
     }
 
     private fun logRecentAbnormalExit() {

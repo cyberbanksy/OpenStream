@@ -34,20 +34,26 @@ private fun tintFor(seed: String): Color {
  * arrives.
  */
 @Composable
-fun Poster(item: MediaItem, modifier: Modifier = Modifier, useBackdrop: Boolean = false) {
+fun Poster(
+    item: MediaItem,
+    modifier: Modifier = Modifier,
+    useBackdrop: Boolean = false,
+    contentScale: ContentScale = ContentScale.Crop,
+    contentDescription: String? = item.title,
+) {
     val remote = if (useBackdrop) item.backdropUrl ?: item.posterUrl else item.posterUrl
     when {
         remote != null -> AsyncImage(
             model = remote,
-            contentDescription = item.title,
+            contentDescription = contentDescription,
             modifier = modifier,
-            contentScale = ContentScale.Crop,
+            contentScale = contentScale,
         )
         item.artRes != null -> Image(
             painter = painterResource(item.artRes),
-            contentDescription = item.title,
+            contentDescription = contentDescription,
             modifier = modifier,
-            contentScale = ContentScale.Crop,
+            contentScale = contentScale,
         )
         else -> Box(
             modifier.background(

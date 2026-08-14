@@ -1,7 +1,6 @@
 package com.orgista.openstream.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,13 +18,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -69,6 +73,29 @@ fun PillButton(
     }
 }
 
+/** Accessible icon-only action for compact preference controls. */
+@Composable
+fun IconPillButton(
+    icon: ImageVector,
+    contentDescription: String,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = if (selected) OpenStreamColors.Text else Color.Transparent,
+        border = BorderStroke(1.dp, if (selected) OpenStreamColors.Text else OpenStreamColors.Border),
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (selected) OpenStreamColors.Canvas else OpenStreamColors.Text,
+            modifier = Modifier.padding(13.dp).size(20.dp),
+        )
+    }
+}
+
 /** Small uppercase section header used across browse surfaces. */
 @Composable
 fun SectionHeader(text: String, modifier: Modifier = Modifier) {
@@ -107,37 +134,53 @@ fun RatingChip(rating: String, modifier: Modifier = Modifier) {
  * as a wall of art instead of labeled boxes.
  */
 @Composable
-fun MediaCard(item: MediaItem, width: Dp, onOpen: (MediaItem) -> Unit) {
+fun MediaCard(
+    item: MediaItem,
+    width: Dp,
+    useBackdrop: Boolean = false,
+    onOpen: (MediaItem) -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val cardScale by animateFloatAsState(
+        targetValue = if (focused) 1.055f else 1f,
+        label = "title-card-scale",
+    )
     Surface(
         onClick = { onOpen(item) },
-        modifier = Modifier.width(width),
+        modifier = Modifier
+            .width(width)
+            .scale(cardScale)
+            .onFocusChanged { focused = it.isFocused || it.hasFocus },
         shape = RoundedCornerShape(12.dp),
         color = OpenStreamColors.Surface,
-        border = BorderStroke(1.dp, Color(0x14E6F0F5)),
+        border = BorderStroke(
+            if (focused) 2.dp else 1.dp,
+            if (focused) OpenStreamColors.Text else Color(0x14E6F0F5),
+        ),
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-            Poster(item, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxWidth().aspectRatio(if (useBackdrop) 16f / 9f else 2f / 3f)) {
+            Poster(item, Modifier.fillMaxSize(), useBackdrop = useBackdrop)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
-                        0.45f to Color.Transparent,
+                        (if (useBackdrop) 0.35f else 0.45f) to Color.Transparent,
                         1f to Color(0xF2060A0D),
                     ),
                 ),
             )
             RatingChip(item.rating, Modifier.align(Alignment.TopEnd).padding(8.dp))
-            Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 11.dp, vertical = 10.dp)) {
+            Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 13.dp, vertical = 12.dp)) {
                 Text(
                     item.title,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = OpenStreamColors.Text,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    item.subtitle ?: "${item.year}",
-                    fontSize = 11.sp,
+                    MediaCardPresentation.subtitle(item),
+                    fontSize = 12.sp,
                     color = OpenStreamColors.Muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

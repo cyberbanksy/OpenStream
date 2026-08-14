@@ -43,14 +43,34 @@ object OfflineDeviceCapabilities {
             }
         }.getOrDefault(setOf(OfflineVideoCodec.AVC))
 
+        val decodeSize = runCatching {
+            val codecInfos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+                .asSequence()
+                .filterNot { it.isEncoder }
+                .filter { Build.VERSION.SDK_INT < 29 || it.isHardwareAccelerated }
+                .toList()
+            listOf(3840 to 2160, 2560 to 1440, 1920 to 1080).firstOrNull { (width, height) ->
+                codecInfos.any { codec ->
+                    codec.supportedTypes.any { type ->
+                        type.startsWith("video/", ignoreCase = true) && runCatching {
+                            codec.getCapabilitiesForType(type).videoCapabilities?.isSizeSupported(width, height) == true
+                        }.getOrDefault(false)
+                    }
+                }
+            }
+        }.getOrNull()
+        val maxDecodeWidth = maxOf(maxWidth, decodeSize?.first ?: maxWidth)
+        val maxDecodeHeight = maxOf(maxHeight, decodeSize?.second ?: maxHeight)
+
+        val mediaReport = runCatching { HdrCapabilityProbe.inspect(context) }.getOrNull()
         val ranges = buildSet {
             add(OfflineDynamicRange.SDR)
-            val report = runCatching { HdrCapabilityProbe.inspect(context) }.getOrNull() ?: return@buildSet
+            val report = mediaReport ?: return@buildSet
             fun addIfPlayable(
                 reportRange: MediaCapabilityReport.DynamicRange,
                 offlineRange: OfflineDynamicRange,
             ) {
-                if (report.playableState(reportRange) != SupportState.UNSUPPORTED) add(offlineRange)
+                if (report.playableState(reportRange) == SupportState.SUPPORTED) add(offlineRange)
             }
             addIfPlayable(MediaCapabilityReport.DynamicRange.HDR10, OfflineDynamicRange.HDR10)
             addIfPlayable(MediaCapabilityReport.DynamicRange.HDR10_PLUS, OfflineDynamicRange.HDR10_PLUS)
@@ -70,6 +90,15 @@ object OfflineDeviceCapabilities {
         } else {
             false
         }
-        return OfflineDeviceProfile(maxWidth, maxHeight, codecs, ranges, atmos)
+        return OfflineDeviceProfile(
+            maxWidth = maxWidth,
+            maxHeight = maxHeight,
+            codecs = codecs,
+            dynamicRanges = ranges,
+            dolbyAtmos = atmos,
+            dolbyVisionProfiles = mediaReport?.dolbyVisionBitstreamProfiles()?.toSet().orEmpty(),
+            maxDecodeWidth = maxDecodeWidth,
+            maxDecodeHeight = maxDecodeHeight,
+        )
     }
 }

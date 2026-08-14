@@ -17,6 +17,8 @@ data class MediaCandidate(
     val directPlay: Boolean = true,
     /** Media3 download id when this route must read only from the offline cache. */
     val offlineDownloadId: String? = null,
+    /** False for legacy downloads whose provider filename was never matched to the requested title. */
+    val offlineIdentityVerified: Boolean = true,
 )
 
 /** Aggregated critic/audience scores, Infuse-style. Any may be null. */
@@ -40,6 +42,8 @@ data class MediaItem(
     /** Remote poster (TMDB); takes precedence over artRes when present. */
     val posterUrl: String? = null,
     val backdropUrl: String? = null,
+    /** Official YouTube trailer id selected from TMDB video metadata. */
+    val trailerYoutubeKey: String? = null,
     val imdbId: String? = null,
     val tmdbId: Int? = null,
     val progressPercent: Int? = null,

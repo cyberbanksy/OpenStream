@@ -169,11 +169,11 @@ public struct OpenStreamRootView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Spacer(minLength: 30)
 
-                Text("NORTHSTAR")
+                Text("OPENSTREAM ORIGINAL")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color.cyan)
 
-                Text("Northstar")
+                Text("OpenStream Showcase")
                     .font(.system(size: compact ? 44 : 64, weight: .heavy))
 
                 HStack(spacing: 10) {

@@ -1,24 +1,33 @@
 package com.orgista.openstream.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -26,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +45,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,19 +55,31 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.orgista.openstream.Logs
 import com.orgista.openstream.data.ConnectionStore
+import com.orgista.openstream.data.DiscoverFeedPreferences
 import com.orgista.openstream.data.DiscoveredNas
 import com.orgista.openstream.data.NasConnection
 import com.orgista.openstream.data.NasDiscovery
 import com.orgista.openstream.data.NasEntry
 import com.orgista.openstream.data.Smb
 import com.orgista.openstream.data.StremioClient
+import com.orgista.openstream.data.StremioAddonPresentation
 import com.orgista.openstream.data.StremioUrlPolicy
+import com.orgista.openstream.data.YoutubeChannelClient
 import com.orgista.openstream.library.LibraryKind
 import com.orgista.openstream.library.LibraryStore
+import com.orgista.openstream.lan.LanSetupServer
+import com.orgista.openstream.lan.LanSetupSession
+import com.orgista.openstream.lan.LanSetupPresentation
+import com.orgista.openstream.lan.LanSetupQrCode
+import com.orgista.openstream.lan.LanSetupMdnsResponder
+import com.orgista.openstream.iptv.IptvStore
 import com.orgista.openstream.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -78,15 +102,67 @@ fun ConnectionsScreen(
     onAddLibrary: (NasConnection, String, LibraryKind) -> Unit,
     onRemoveLibrary: (String) -> Unit,
     onPlayNas: (NasConnection, NasEntry) -> Unit,
+    iptvStore: IptvStore,
+    onIptvChanged: () -> Unit,
+    onOpenChannelManager: () -> Unit,
     onAddonsChanged: () -> Unit = {},
 ) {
     var revision by remember { mutableIntStateOf(0) }
     val nasConnections = remember(revision) { store.nasConnections() }
     val addons = remember(revision) { store.stremioAddons() }
+    val youtubeChannels = remember(revision) { store.youtubeChannels() }
+    var feedPreferences by remember(revision) { mutableStateOf(store.discoverFeedPreferences()) }
     val libraries = remember(revision, indexing) { libraryStore.folders() }
     var browsing by remember { mutableStateOf<NasConnection?>(null) }
     var showAddNas by remember { mutableStateOf(false) }
     var showAddAddon by remember { mutableStateOf(false) }
+    var showAddYoutube by remember { mutableStateOf(false) }
+    var testingAddonId by remember { mutableStateOf<String?>(null) }
+    var addonTestResults by remember { mutableStateOf<Map<String, com.orgista.openstream.data.StremioAddonTestResult>>(emptyMap()) }
+    var lanSession by remember { mutableStateOf<LanSetupSession?>(null) }
+    var lanError by remember { mutableStateOf<String?>(null) }
+    var lanStarting by remember { mutableStateOf(false) }
+    var lanCopied by remember { mutableStateOf(false) }
+    var lanFriendlyAddressActive by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val lanMdnsResponder = remember { LanSetupMdnsResponder(context.applicationContext) }
+    val lanServer = remember {
+        LanSetupServer(
+            addManifest = { manifest ->
+                val addon = StremioClient.loadAddon(manifest)
+                store.addStremio(addon)
+                addon.name
+            },
+            onAdded = { name ->
+                mainHandler.post {
+                    lanMdnsResponder.close()
+                    lanSession = null
+                    lanFriendlyAddressActive = false
+                    revision++
+                    onAddonsChanged()
+                    Logs.event("add-on connected from temporary LAN setup: $name")
+                }
+            },
+        )
+    }
+    DisposableEffect(lanServer, lanMdnsResponder) {
+        onDispose {
+            lanMdnsResponder.close()
+            lanServer.close()
+        }
+    }
+    LaunchedEffect(lanSession?.expiresAtMillis) {
+        val session = lanSession ?: return@LaunchedEffect
+        delay((session.expiresAtMillis - System.currentTimeMillis()).coerceAtLeast(0L))
+        if (lanSession == session) {
+            lanMdnsResponder.close()
+            lanServer.close()
+            lanSession = null
+            lanFriendlyAddressActive = false
+        }
+    }
 
     val active = browsing
     if (active != null) {
@@ -102,7 +178,7 @@ fun ConnectionsScreen(
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 36.dp),
     ) {
         item {
             Row(
@@ -112,143 +188,351 @@ fun ConnectionsScreen(
             ) {
                 Column {
                     Text("Sources", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
-                    Text("NAS shares stream directly over SMB; add-ons resolve HTTPS streams.", fontSize = 13.sp, color = OpenStreamColors.Muted)
+                    Text("Libraries, add-ons, YouTube, and Live TV", fontSize = 13.sp, color = OpenStreamColors.Muted)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        enabled = !lanStarting,
+                        onClick = {
+                            lanError = null
+                            lanStarting = true
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val session = lanServer.start()
+                                        session to lanMdnsResponder.start(session)
+                                    }
+                                }
+                                lanStarting = false
+                                result.fold(
+                                    onSuccess = { (session, friendlyAddressActive) ->
+                                        lanSession = session
+                                        lanFriendlyAddressActive = friendlyAddressActive
+                                        lanCopied = false
+                                    },
+                                    onFailure = {
+                                        lanMdnsResponder.close()
+                                        lanServer.close()
+                                        lanError = it.message ?: "Local setup could not start."
+                                    },
+                                )
+                            }
+                        },
+                    ) { Text(if (lanStarting) "Starting…" else "Set up over Wi-Fi") }
+                    OutlinedButton(onClick = { showAddYoutube = true }) { Text("+ YouTube") }
                     OutlinedButton(onClick = { showAddAddon = true }) { Text("+ Add-on") }
                     Button(onClick = { showAddNas = true }) { Text("+ NAS share") }
                 }
             }
         }
 
+        lanSession?.let { session ->
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = OpenStreamColors.SurfaceRaised,
+                    border = BorderStroke(1.dp, OpenStreamColors.BorderStrong),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Connect from a computer", fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                            Text("On the same Wi-Fi, type this address into any browser.", color = OpenStreamColors.Muted, fontSize = 13.sp)
+                            SelectionContainer {
+                                Text(
+                                    if (lanFriendlyAddressActive) {
+                                        LanSetupPresentation.computerAddress(session)
+                                    } else {
+                                        LanSetupPresentation.fallbackComputerAddress(session)
+                                    },
+                                    color = OpenStreamColors.Text,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 17.sp,
+                                )
+                            }
+                            if (lanFriendlyAddressActive) {
+                                SelectionContainer {
+                                    Text(
+                                        "If that doesn't open: ${LanSetupPresentation.fallbackComputerAddress(session)}",
+                                        color = OpenStreamColors.Muted,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        val copiedUrl = if (lanFriendlyAddressActive) {
+                                            LanSetupPresentation.computerUrl(session)
+                                        } else {
+                                            LanSetupPresentation.fallbackComputerUrl(session)
+                                        }
+                                        context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
+                                            ClipData.newPlainText("OpenStream setup", copiedUrl),
+                                        )
+                                        lanCopied = true
+                                    },
+                                ) { Text(if (lanCopied) "Copied" else "Copy address") }
+                                Text("Available for 10 minutes", color = OpenStreamColors.Muted, fontSize = 12.sp)
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = androidx.compose.ui.graphics.Color.White,
+                            ) {
+                                Image(
+                                    bitmap = remember(session.url) {
+                                        LanSetupQrCode.imageBitmap(LanSetupPresentation.qrContent(session))
+                                    },
+                                    contentDescription = "Scan to open setup page",
+                                    modifier = Modifier.padding(7.dp).size(104.dp),
+                                )
+                            }
+                            Text("Or scan", color = OpenStreamColors.Muted, fontSize = 11.sp)
+                        }
+                        TextButton(
+                            onClick = {
+                                lanMdnsResponder.close()
+                                lanServer.close()
+                                lanSession = null
+                                lanFriendlyAddressActive = false
+                            },
+                        ) { Text("Stop") }
+                    }
+                }
+            }
+        }
+        lanError?.let { message -> item { Text(message, color = OpenStreamColors.Danger, fontSize = 13.sp) } }
+
         if (libraries.isNotEmpty()) {
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionLabel("Libraries")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SourceSectionHeading(
+                        title = "Libraries",
+                        info = "Folders added to your OpenStream library. Remove a folder here without deleting its files from the server.",
+                    )
                     if (indexing) {
-                        CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp, color = OpenStreamColors.Accent)
-                        Text("Scanning & fetching metadata…", fontSize = 12.sp, color = OpenStreamColors.Accent)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OpenStreamLoadingIndicator(role = LoadingIndicatorRole.INLINE)
+                            Text("Scanning & fetching metadata…", fontSize = 12.sp, color = OpenStreamColors.Accent)
+                        }
                     }
                 }
             }
             items(libraries, key = { it.id }) { folder ->
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = OpenStreamColors.Surface,
-                    border = BorderStroke(1.dp, OpenStreamColors.Border),
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(AppIcons.Folder, contentDescription = null, tint = OpenStreamColors.Accent)
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "${folder.connectionName} / ${folder.path.ifBlank { "(root)" }}",
-                                fontWeight = FontWeight.Bold,
-                                color = OpenStreamColors.Text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                when (folder.kind) {
-                                    LibraryKind.MOVIES -> "Movies library"
-                                    LibraryKind.TV -> "TV library"
-                                    LibraryKind.AUTO -> "Auto-organized library"
-                                },
-                                fontSize = 13.sp,
-                                color = OpenStreamColors.Muted,
-                            )
-                        }
-                        IconButton(onClick = {
-                            onRemoveLibrary(folder.id)
-                            revision++
-                        }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
-                    }
-                }
-            }
-        }
-
-        item { SectionLabel("NAS shares") }
-        if (nasConnections.isEmpty()) {
-            item { Text("No NAS shares yet. Add your server's host and share name.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
-        }
-        items(nasConnections, key = { it.id }) { connection ->
-            Surface(
-                onClick = { browsing = connection },
-                shape = RoundedCornerShape(10.dp),
-                color = OpenStreamColors.Surface,
-                border = BorderStroke(1.dp, OpenStreamColors.Border),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AppIcons.Storage, contentDescription = null, tint = OpenStreamColors.Cyan)
+                FlatSourceRow {
+                    Icon(AppIcons.Folder, contentDescription = null, tint = OpenStreamColors.Accent)
                     Column(Modifier.weight(1f)) {
-                        Text(connection.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
-                        Text("smb://${connection.host}/${connection.share}", fontSize = 13.sp, color = OpenStreamColors.Muted)
+                        Text(
+                            "${folder.connectionName} / ${folder.path.ifBlank { "(root)" }}",
+                            fontWeight = FontWeight.Bold,
+                            color = OpenStreamColors.Text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            when (folder.kind) {
+                                LibraryKind.MOVIES -> "Movies library"
+                                LibraryKind.TV -> "TV library"
+                                LibraryKind.AUTO -> "Auto-organized library"
+                            },
+                            fontSize = 13.sp,
+                            color = OpenStreamColors.Muted,
+                        )
                     }
                     IconButton(onClick = {
-                        store.removeNas(connection.id)
+                        onRemoveLibrary(folder.id)
                         revision++
                     }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
                 }
             }
         }
 
-        item { SectionLabel("Discovery & playback add-ons") }
+        item {
+            SourceSectionHeading(
+                title = "NAS shares",
+                info = "Network storage connected over SMB. Tap a share to browse it or add one of its folders to the library.",
+            )
+        }
+        if (nasConnections.isEmpty()) {
+            item { Text("No NAS shares yet. Add your server's host and share name.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
+        }
+        items(nasConnections, key = { it.id }) { connection ->
+            FlatSourceRow(modifier = Modifier.clickable { browsing = connection }) {
+                Icon(AppIcons.Storage, contentDescription = null, tint = OpenStreamColors.Cyan)
+                Column(Modifier.weight(1f)) {
+                    Text(connection.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                    Text("smb://${connection.host}/${connection.share}", fontSize = 13.sp, color = OpenStreamColors.Muted)
+                }
+                IconButton(onClick = {
+                    store.removeNas(connection.id)
+                    revision++
+                }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+            }
+        }
+
+        item {
+            SourceSectionHeading(
+                title = "Discover feed",
+                info = "Choose which source groups appear in Discover and arrange their order. Turning off a group hides its rows without removing the source or its saved configuration.",
+            )
+        }
+        items(feedPreferences.order, key = { "discover-${it.name}" }) { group ->
+            FlatSourceRow {
+                Column(Modifier.weight(1f)) {
+                    Text(group.displayName, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                    Text(group.description, fontSize = 13.sp, color = OpenStreamColors.TextSoft)
+                }
+                TextButton(
+                    enabled = feedPreferences.order.firstOrNull() != group,
+                    onClick = {
+                        feedPreferences = feedPreferences.move(group, -1)
+                        store.saveDiscoverFeedPreferences(feedPreferences)
+                        revision++
+                        onAddonsChanged()
+                    },
+                ) { Text("Up") }
+                TextButton(
+                    enabled = feedPreferences.order.lastOrNull() != group,
+                    onClick = {
+                        feedPreferences = feedPreferences.move(group, 1)
+                        store.saveDiscoverFeedPreferences(feedPreferences)
+                        revision++
+                        onAddonsChanged()
+                    },
+                ) { Text("Down") }
+                Switch(
+                    checked = group in feedPreferences.visibleGroups,
+                    onCheckedChange = { visible ->
+                        feedPreferences = feedPreferences.withVisibility(group, visible)
+                        store.saveDiscoverFeedPreferences(feedPreferences)
+                        revision++
+                        onAddonsChanged()
+                    },
+                )
+            }
+        }
+
+        item {
+            SourceSectionHeading(
+                title = "YouTube",
+                info = "Add an exact channel or @handle. Every enabled channel appears inside the YouTube group and contributes likely new uploads to Up Next. No YouTube API key is required.",
+            )
+        }
+        if (youtubeChannels.isEmpty()) {
+            item { Text("No YouTube channels yet.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
+        }
+        items(youtubeChannels, key = { it.id }) { channel ->
+            FlatSourceRow {
+                Icon(AppIcons.Play, contentDescription = null, tint = OpenStreamColors.Text)
+                Column(Modifier.weight(1f)) {
+                    Text(channel.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                    Text("Adds recent uploads to Discover", fontSize = 13.sp, color = OpenStreamColors.TextSoft)
+                    Text(
+                        "youtube.com/channel/${channel.channelId}",
+                        fontSize = 12.sp,
+                        color = OpenStreamColors.Muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Switch(
+                    checked = channel.enabled,
+                    onCheckedChange = { enabled ->
+                        store.setYoutubeChannelEnabled(channel.id, enabled)
+                        revision++
+                        onAddonsChanged()
+                    },
+                )
+                IconButton(onClick = {
+                    store.removeYoutubeChannel(channel.id)
+                    revision++
+                    onAddonsChanged()
+                }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
+            }
+        }
+
+        item {
+            SourceSectionHeading(
+                title = "Add-Ons",
+                info = "Add-ons provide catalogs, metadata, or HTTPS playback routes. Private manifest paths stay on this device.",
+            )
+        }
         if (addons.isEmpty()) {
             item { Text("No add-ons yet. Paste an add-on manifest URL to connect one.", color = OpenStreamColors.Muted, fontSize = 14.sp) }
         }
         items(addons, key = { it.id }) { addon ->
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = OpenStreamColors.Surface,
-                border = BorderStroke(1.dp, OpenStreamColors.Border),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AppIcons.Check, contentDescription = null, tint = OpenStreamColors.Green)
-                    Column(Modifier.weight(1f)) {
-                        Text(addon.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
-                        val capabilities = addon.resources.sorted().joinToString(" · ").ifBlank { "manifest" }
+            FlatSourceRow {
+                Icon(AppIcons.Check, contentDescription = null, tint = OpenStreamColors.Green)
+                Column(Modifier.weight(1f)) {
+                    Text(addon.name, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                    Text(
+                        StremioAddonPresentation.usage(addon),
+                        fontSize = 13.sp,
+                        color = OpenStreamColors.TextSoft,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        StremioUrlPolicy.safeLabel(addon.transportUrl),
+                        fontSize = 12.sp,
+                        color = OpenStreamColors.Muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    addonTestResults[addon.id]?.let { result ->
                         Text(
-                            "${StremioUrlPolicy.safeLabel(addon.transportUrl)} · $capabilities",
-                            fontSize = 13.sp,
-                            color = OpenStreamColors.Muted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            result.message,
+                            fontSize = 12.sp,
+                            color = if (result.working) OpenStreamColors.Green else OpenStreamColors.Danger,
                         )
                     }
-                    Switch(
-                        checked = addon.enabled,
-                        onCheckedChange = { enabled ->
-                            store.setStremioEnabled(addon.id, enabled)
-                            revision++
-                            onAddonsChanged()
-                        },
-                    )
-                    if (!addon.builtIn) {
-                        IconButton(onClick = {
-                            store.removeStremio(addon.id)
-                            revision++
-                            onAddonsChanged()
-                        }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
-                    }
                 }
+                TextButton(
+                    enabled = testingAddonId == null,
+                    onClick = {
+                        testingAddonId = addon.id
+                        addonTestResults = addonTestResults - addon.id
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { StremioClient.testAddon(addon) }
+                            addonTestResults = addonTestResults + (addon.id to result)
+                            testingAddonId = null
+                            Logs.event("add-on test ${if (result.working) "passed" else "failed"}: ${addon.name}")
+                        }
+                    },
+                ) { Text(if (testingAddonId == addon.id) "Testing…" else "Test") }
+                Switch(
+                    checked = addon.enabled,
+                    onCheckedChange = { enabled ->
+                        store.setStremioEnabled(addon.id, enabled)
+                        revision++
+                        onAddonsChanged()
+                    },
+                )
+                IconButton(onClick = {
+                    store.removeStremio(addon.id)
+                    revision++
+                    onAddonsChanged()
+                }) { Icon(AppIcons.Close, contentDescription = "Remove", tint = OpenStreamColors.Muted) }
             }
         }
-        item {
-            Text(
-                "Personal stream providers (including configured Torrentio/debrid manifests) are opt-in. Paste the manifest with Add-on; its private path stays on this device and is never shown here.",
-                color = OpenStreamColors.Muted,
-                fontSize = 12.sp,
+
+        item(key = "live-sources") {
+            IptvSettingsPanel(
+                store = iptvStore,
+                onChanged = onIptvChanged,
+                onOpenChannelManager = onOpenChannelManager,
             )
         }
     }
@@ -274,17 +558,80 @@ fun ConnectionsScreen(
             },
         )
     }
+    if (showAddYoutube) {
+        AddYoutubeChannelDialog(
+            store = store,
+            onDone = { added ->
+                showAddYoutube = false
+                if (added) {
+                    revision++
+                    onAddonsChanged()
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text.uppercase(),
-        modifier = Modifier.padding(top = 10.dp),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.ExtraBold,
-        color = OpenStreamColors.Muted,
-    )
+private fun SourceSectionHeading(title: String, info: String) {
+    var showInfo by remember(title) { mutableStateOf(false) }
+    val layout = SourceSectionLayoutPolicy.current
+    Row(
+        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            fontSize = layout.headingSizeSp.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = OpenStreamColors.Text,
+        )
+        if (layout.showSectionInfo) {
+            IconButton(
+                onClick = { showInfo = true },
+                modifier = Modifier.size(48.dp).semantics { contentDescription = "$title information" },
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                    border = BorderStroke(1.dp, OpenStreamColors.Muted),
+                ) {
+                    androidx.compose.foundation.layout.Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        Text("i", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.TextSoft)
+                    }
+                }
+            }
+        }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(title) },
+            text = { Text(info) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Done") } },
+        )
+    }
+}
+
+@Composable
+private fun FlatSourceRow(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val layout = SourceSectionLayoutPolicy.current
+    Column {
+        Row(
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = layout.minimumRowHeightDp.dp)
+                .padding(horizontal = 4.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
+        HorizontalDivider(color = OpenStreamColors.Border)
+    }
 }
 
 @Composable
@@ -328,8 +675,7 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                         enabled = !scanning,
                     ) {
                         if (scanning) {
-                            CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 2.dp)
-                            Text("  Scanning network…")
+                            OpenStreamLoadingLabel("Scanning network…")
                         } else {
                             Text("Scan for servers")
                         }
@@ -389,8 +735,7 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                         enabled = !listingShares && host.isNotBlank(),
                     ) {
                         if (listingShares) {
-                            CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 2.dp)
-                            Text("  Listing shares…")
+                            OpenStreamLoadingLabel("Listing shares…")
                         } else {
                             Text("List shares")
                         }
@@ -457,8 +802,7 @@ private fun AddNasDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                 enabled = !checking && host.isNotBlank() && share.isNotBlank(),
             ) {
                 if (checking) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("  Checking…")
+                    OpenStreamLoadingLabel("Checking…")
                 } else {
                     Text("Test & connect")
                 }
@@ -515,11 +859,76 @@ private fun AddAddonDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
                 enabled = !checking && url.isNotBlank(),
             ) {
                 if (checking) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("  Checking…")
+                    OpenStreamLoadingLabel("Checking…")
                 } else {
                     Text("Validate & add")
                 }
+            }
+        },
+        dismissButton = { TextButton(onClick = { if (!checking) onDone(false) }) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun AddYoutubeChannelDialog(store: ConnectionStore, onDone: (Boolean) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var input by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = { if (!checking) onDone(false) },
+        title = { Text("Add a YouTube channel") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Enter an exact @handle, channel ID, or channel URL. No API key is required.",
+                    color = OpenStreamColors.TextSoft,
+                    fontSize = 14.sp,
+                )
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        error = null
+                    },
+                    singleLine = true,
+                    label = { Text("Channel") },
+                    placeholder = { Text("@GoogleDevelopers") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Done,
+                        autoCorrectEnabled = false,
+                    ),
+                )
+                if (error != null) Text(error!!, color = OpenStreamColors.Danger, fontSize = 13.sp)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    checking = true
+                    error = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching { YoutubeChannelClient.resolve(input) }
+                        }
+                        checking = false
+                        result.fold(
+                            onSuccess = { channel ->
+                                store.addYoutubeChannel(channel)
+                                Logs.event("YouTube channel connected: ${channel.name}")
+                                onDone(true)
+                            },
+                            onFailure = { failure ->
+                                error = failure.message ?: "That YouTube channel could not be verified."
+                            },
+                        )
+                    }
+                },
+                enabled = !checking && input.trim().length >= 2,
+            ) {
+                if (checking) OpenStreamLoadingLabel("Checking…") else Text("Verify & add")
             }
         },
         dismissButton = { TextButton(onClick = { if (!checking) onDone(false) }) { Text("Cancel") } },
@@ -629,9 +1038,16 @@ private fun NasBrowser(
         val currentError = error
         when {
             currentError != null -> Text(currentError, color = OpenStreamColors.Danger)
-            currentEntries == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text("Reading folder…", color = OpenStreamColors.Muted)
+            currentEntries == null -> Row(
+                Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                OpenStreamLoadingLabel(
+                    label = "Reading folder…",
+                    role = LoadingIndicatorRole.INLINE,
+                    labelColor = OpenStreamColors.Muted,
+                )
             }
             currentEntries.isEmpty() -> Text("No folders or video files here.", color = OpenStreamColors.Muted)
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {

@@ -1,13 +1,34 @@
 package com.orgista.openstream.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TopNavModelTest {
     @Test
+    fun `phone widths use the compact two row navigation`() {
+        assertTrue(TopNavLayoutPolicy.isCompact(widthDp = 384, heightDp = 640))
+        assertTrue(TopNavLayoutPolicy.isCompact(widthDp = 640, heightDp = 384))
+        assertFalse(TopNavLayoutPolicy.isCompact(widthDp = 1280, heightDp = 800))
+    }
+
+    @Test
+    fun `wide brand receives baseline compensation beside navigation tabs`() {
+        assertEquals(7, TopNavLayoutPolicy.brandBottomPaddingDp(compact = false))
+        assertEquals(0, TopNavLayoutPolicy.brandBottomPaddingDp(compact = true))
+    }
+
+    @Test
+    fun `app chrome omits duplicate system connectivity telemetry`() {
+        assertFalse(TopNavLayoutPolicy.showConnectivityTelemetry)
+        assertEquals(TopDestination.DISCOVER, TopNavLayoutPolicy.brandDestination)
+    }
+
+    @Test
     fun `primary navigation stays focused on browsing`() {
         assertEquals(
-            listOf(TopDestination.DISCOVER, TopDestination.LIBRARY),
+            listOf(TopDestination.DISCOVER, TopDestination.LIBRARY, TopDestination.LIVE),
             primaryTopDestinations(),
         )
     }
@@ -39,8 +60,8 @@ class TopNavModelTest {
             libraryHeaderStatus(indexing = false, hasLibraries = true, titleCount = 389, metadataEnabled = true),
         )
         assertEquals(
-            "Demo library",
-            libraryHeaderStatus(indexing = false, hasLibraries = false, titleCount = 6, metadataEnabled = false),
+            "Add a source",
+            libraryHeaderStatus(indexing = false, hasLibraries = false, titleCount = 0, metadataEnabled = false),
         )
     }
 }

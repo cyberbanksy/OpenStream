@@ -64,6 +64,58 @@ class OfflineQualityPolicyTest {
     }
 
     @Test
+    fun rejectsUnsupportedDolbyVisionProfileAndKeepsSupportedProfile() {
+        val streams = listOf(
+            StremioStream("2160p DV P7 HEVC REMUX 60 GB", "https://media.example/p7.mkv"),
+            StremioStream("2160p DV P8 HEVC 5 GB", "https://media.example/p8.mkv"),
+            StremioStream("2160p HDR10 HEVC 6 GB", "https://media.example/hdr10.mkv"),
+        )
+        val profile = OfflineDeviceProfile(
+            maxWidth = 3840,
+            maxHeight = 2160,
+            codecs = setOf(OfflineVideoCodec.HEVC),
+            dynamicRanges = setOf(
+                OfflineDynamicRange.SDR,
+                OfflineDynamicRange.HDR10,
+                OfflineDynamicRange.DOLBY_VISION,
+            ),
+            dolbyAtmos = true,
+            dolbyVisionProfiles = setOf(4, 5, 8, 9),
+        )
+
+        val compatible = OfflineQualityPolicy.compatible(streams, profile, Long.MAX_VALUE)
+        val selected = OfflineQualityPolicy.select(streams, profile, Long.MAX_VALUE)
+
+        assertFalse(compatible.any { it.dolbyVisionProfile == 7 })
+        assertEquals("https://media.example/p8.mkv", selected?.stream?.url)
+    }
+
+    @Test
+    fun allowsFourKDecodeToScaleOntoA1536pDolbyVisionDisplay() {
+        val profile = OfflineDeviceProfile(
+            maxWidth = 2560,
+            maxHeight = 1536,
+            codecs = setOf(OfflineVideoCodec.HEVC),
+            dynamicRanges = setOf(OfflineDynamicRange.SDR, OfflineDynamicRange.DOLBY_VISION),
+            dolbyAtmos = false,
+            dolbyVisionProfiles = setOf(4, 5, 8, 9),
+            maxDecodeWidth = 3840,
+            maxDecodeHeight = 2160,
+        )
+
+        val selected = OfflineQualityPolicy.select(
+            listOf(
+                StremioStream("2160p DV P8 HEVC 4.86 GB", "https://media.example/p8.mkv"),
+                StremioStream("1080p HEVC 2.2 GB", "https://media.example/1080.mkv"),
+            ),
+            profile,
+            Long.MAX_VALUE,
+        )
+
+        assertEquals("https://media.example/p8.mkv", selected?.stream?.url)
+    }
+
+    @Test
     fun rejectsKnownFilesThatDoNotFitAvailableStorage() {
         val streams = listOf(
             StremioStream("2160p HEVC 20 GB", "https://media.example/large.mkv"),

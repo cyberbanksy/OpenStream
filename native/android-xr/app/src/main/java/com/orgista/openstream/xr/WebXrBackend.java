@@ -22,6 +22,7 @@ public final class WebXrBackend implements ImmersiveVideoBackend {
     @Override
     public LaunchResult launch(Activity activity, ImmersiveMediaDescriptor media) {
         Uri viewer = Uri.parse(BuildConfig.WEB_XR_URL).buildUpon()
+                .appendQueryParameter("src", media.uri().toString())
                 .appendQueryParameter("projection", projectionValue(media.projection()))
                 .appendQueryParameter("stereo", stereoValue(media.stereoMode()))
                 .appendQueryParameter("range", media.dynamicRange())

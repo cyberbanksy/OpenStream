@@ -1,5 +1,7 @@
 package com.orgista.openstream.media;
 
+import android.media.MediaCodecInfo;
+
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -28,5 +30,17 @@ public final class DolbyVisionCodecStringTest {
         assertFalse(DolbyVisionCodecString.parse("hvc1.2.4.L153.B0").isPresent());
         assertFalse(DolbyVisionCodecString.parse("dvhe.bad.06").isPresent());
         assertFalse(DolbyVisionCodecString.parse(null).isPresent());
+    }
+
+    @Test
+    public void mapsAndroidDecoderProfilesToDolbyBitstreamProfiles() {
+        assertEquals(4, DolbyVisionCodecString.bitstreamProfile(
+                MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr).orElseThrow());
+        assertEquals(5, DolbyVisionCodecString.bitstreamProfile(
+                MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn).orElseThrow());
+        assertEquals(8, DolbyVisionCodecString.bitstreamProfile(
+                MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt).orElseThrow());
+        assertEquals(9, DolbyVisionCodecString.bitstreamProfile(
+                MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe).orElseThrow());
     }
 }

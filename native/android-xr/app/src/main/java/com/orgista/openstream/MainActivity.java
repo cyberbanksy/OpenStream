@@ -41,6 +41,9 @@ import java.util.Locale;
 
 @OptIn(markerClass = UnstableApi.class)
 public final class MainActivity extends Activity {
+    private static final Uri DOLBY_VISION_P8_TEST = Uri.parse(
+            "https://ott.dolby.com/browser_test_kit/clear/p81/24/dash.mpd"
+    );
     private static final int WHITE = Color.rgb(247, 248, 247);
     private static final int MUTED = Color.rgb(191, 198, 195);
     private static final int MINT = Color.rgb(169, 244, 197);
@@ -167,6 +170,12 @@ public final class MainActivity extends Activity {
         actions.addView(inspect, inspectParams);
         inspect.setOnClickListener(view -> showCapabilities());
         heroCopy.addView(actions);
+
+        Button dolbyTest = actionButton("Dolby Vision P8.1 test", false);
+        LinearLayout.LayoutParams dolbyTestParams = new LinearLayout.LayoutParams(dp(230), dp(52));
+        dolbyTestParams.topMargin = dp(12);
+        heroCopy.addView(dolbyTest, dolbyTestParams);
+        dolbyTest.setOnClickListener(view -> playMedia(DOLBY_VISION_P8_TEST));
         play.requestFocus();
 
         playbackStatus = text(xrRuntime.runtimeLabel(), 14, MUTED, Typeface.NORMAL);
@@ -205,6 +214,11 @@ public final class MainActivity extends Activity {
     }
 
     private void playDemo() {
+        Uri demo = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.openstream_demo);
+        playMedia(demo);
+    }
+
+    private void playMedia(Uri mediaUri) {
         root.removeAllViews();
         playerView = new PlayerView(this);
         playerView.setBackgroundColor(Color.BLACK);
@@ -240,9 +254,40 @@ public final class MainActivity extends Activity {
             public void onTracksChanged(Tracks tracks) {
                 updateSelectedTrack(tracks);
             }
+
+            @Override
+            public void onPlaybackStateChanged(int playbackState) {
+                if (playbackState == Player.STATE_READY) {
+                    Logs.INSTANCE.event("capability playback ready");
+                }
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean isPlaying) {
+                Logs.INSTANCE.event("capability playback " + (isPlaying ? "playing" : "paused"));
+            }
+
+            @Override
+            public void onPlayerError(androidx.media3.common.PlaybackException playbackError) {
+                Logs.INSTANCE.error("capability playback failed: " + playbackError.getErrorCodeName(), null);
+                playbackStatus.setText(
+                        playbackError.getErrorCodeName()
+                                .replace("ERROR_CODE_", "")
+                                .replace('_', ' ')
+                                .toLowerCase(Locale.US)
+                );
+            }
         });
-        Uri demo = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.openstream_demo);
-        player.setMediaItem(MediaItem.fromUri(demo));
+        // This diagnostic signal is intentionally deterministic: select its
+        // highest supported representation so the 4K Dolby decoder path is
+        // exercised instead of waiting for a short 71-second ABR clip to ramp.
+        player.setTrackSelectionParameters(
+                player.getTrackSelectionParameters()
+                        .buildUpon()
+                        .setForceHighestSupportedBitrate(true)
+                        .build()
+        );
+        player.setMediaItem(MediaItem.fromUri(mediaUri));
         player.prepare();
         player.play();
         close.requestFocus();
@@ -268,6 +313,11 @@ public final class MainActivity extends Activity {
                         result.dynamicRange(),
                         result.dolbyVisionProfile()
                 ));
+                Logs.INSTANCE.event(
+                        "capability selected video: " + dimensions +
+                                ", range=" + result.dynamicRange() +
+                                ", profile=" + result.dolbyVisionProfile()
+                );
                 return;
             }
         }

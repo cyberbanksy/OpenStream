@@ -13,6 +13,9 @@ data class OfflineDeviceProfile(
     val codecs: Set<OfflineVideoCodec>,
     val dynamicRanges: Set<OfflineDynamicRange>,
     val dolbyAtmos: Boolean,
+    val dolbyVisionProfiles: Set<Int> = emptySet(),
+    val maxDecodeWidth: Int = maxWidth,
+    val maxDecodeHeight: Int = maxHeight,
 )
 
 data class OfflineStreamDescriptor(
@@ -23,6 +26,7 @@ data class OfflineStreamDescriptor(
     val dynamicRange: OfflineDynamicRange,
     val dolbyAtmos: Boolean,
     val sizeBytes: Long,
+    val dolbyVisionProfile: Int? = null,
 ) {
     val qualityLabel: String
         get() = buildList {
@@ -80,6 +84,9 @@ data class OfflineStreamDescriptor(
                 else -> OfflineDynamicRange.SDR
             }
             val atmos = Regex("(?i)(?:dolby[ ._-]*atmos|\\batmos\\b|eac3[ ._-]*joc)").containsMatchIn(text)
+            val dolbyVisionProfile = Regex(
+                "(?i)(?:dolby[ ._-]*vision|dovi|\\bdv\\b)[ ._-]*(?:p(?:rofile)?[ ._-]*)?(\\d{1,2})",
+            ).find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
             val size = sizePattern.find(text)?.let { match ->
                 val value = match.groupValues[1].toDoubleOrNull() ?: return@let 0L
                 val multiplier = when (match.groupValues[2].uppercase()) {
@@ -89,7 +96,7 @@ data class OfflineStreamDescriptor(
                 }
                 (value * multiplier).roundToLong()
             } ?: 0L
-            return OfflineStreamDescriptor(stream, width, height, codec, range, atmos, size)
+            return OfflineStreamDescriptor(stream, width, height, codec, range, atmos, size, dolbyVisionProfile)
         }
     }
 }
@@ -99,18 +106,34 @@ object OfflineQualityPolicy {
         streams: List<StremioStream>,
         profile: OfflineDeviceProfile,
         availableBytes: Long,
-    ): OfflineStreamDescriptor? = streams
+    ): OfflineStreamDescriptor? = compatible(streams, profile, availableBytes)
+        .maxByOrNull { qualityScore(it, profile) }
+
+    fun compatible(
+        streams: List<StremioStream>,
+        profile: OfflineDeviceProfile,
+        availableBytes: Long,
+    ): List<OfflineStreamDescriptor> = streams
         .asSequence()
         .map(OfflineStreamDescriptor::parse)
         .filter { it.sizeBytes <= 0L || it.sizeBytes <= availableBytes }
+        .filter { candidate ->
+            (candidate.width == null || candidate.width <= profile.maxDecodeWidth) &&
+                (candidate.height == null || candidate.height <= profile.maxDecodeHeight)
+        }
         .filter { it.codec == OfflineVideoCodec.UNKNOWN || it.codec in profile.codecs }
         .filter { it.dynamicRange in profile.dynamicRanges }
-        .maxByOrNull { score(it, profile) }
+        .filter { candidate ->
+            candidate.dynamicRange != OfflineDynamicRange.DOLBY_VISION ||
+                candidate.dolbyVisionProfile == null ||
+                profile.dolbyVisionProfiles.isEmpty() ||
+                candidate.dolbyVisionProfile in profile.dolbyVisionProfiles
+        }
+        .toList()
 
-    private fun score(candidate: OfflineStreamDescriptor, profile: OfflineDeviceProfile): Long {
+    fun qualityScore(candidate: OfflineStreamDescriptor, profile: OfflineDeviceProfile): Long {
         val resolution = candidate.height?.let { height ->
-            if (height <= profile.maxHeight) height.toLong() * 10_000L
-            else profile.maxHeight.toLong() * 10_000L - (height - profile.maxHeight) * 20_000L
+            minOf(height, profile.maxHeight).toLong() * 10_000L
         } ?: 1L
         val range = when (candidate.dynamicRange) {
             OfflineDynamicRange.DOLBY_VISION -> 900L

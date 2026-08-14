@@ -31,8 +31,8 @@ object BuiltInStremioAddons {
             manifestUrl = "https://v3-cinemeta.strem.io/manifest.json",
             resources = setOf("catalog", "meta", "addon_catalog"),
             catalogs = listOf(
-                StremioCatalog("movie", "top", "Popular movies"),
-                StremioCatalog("series", "top", "Popular series"),
+                StremioCatalog("movie", "top", "Popular movies", supportsSearch = true),
+                StremioCatalog("series", "top", "Popular series", supportsSearch = true),
                 StremioCatalog("movie", "imdbRating", "Featured movies"),
                 StremioCatalog("series", "imdbRating", "Featured series"),
             ),

@@ -17,9 +17,28 @@ class BackNavigationTest {
     }
 
     @Test
+    fun `live player returns to the live guide`() {
+        assertEquals(
+            BackDestination.Navigate(Screen.Live),
+            backDestination(
+                Screen.Player(PlaybackRequest("Live", null, "https://example.test/live.m3u8", isLive = true)),
+                Screen.Discover,
+            ),
+        )
+    }
+
+    @Test
     fun `tabs return to discover and discover exits`() {
         assertEquals(BackDestination.Navigate(Screen.Discover), backDestination(Screen.Settings, Screen.Settings))
         assertEquals(BackDestination.Exit, backDestination(Screen.Discover, Screen.Discover))
+    }
+
+    @Test
+    fun `channel manager lives under sources`() {
+        assertEquals(
+            BackDestination.Navigate(Screen.Connections),
+            backDestination(Screen.ChannelManager, Screen.Live),
+        )
     }
 
     private fun testItem() = com.orgista.openstream.data.MediaItem(

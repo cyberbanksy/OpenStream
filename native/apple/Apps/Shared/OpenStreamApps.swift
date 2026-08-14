@@ -12,7 +12,9 @@ struct OpenStreamPlatformApp: App {
     @State private var showPlaybackLabels = false
     @State private var offlineAvailable = false
     @State private var offlineBusy = false
+    @State private var showLaunch = true
     @StateObject private var network = AppleNetworkStatus()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let offlineStore = AppleOfflineMediaStore()
 
     var body: some Scene {
@@ -57,9 +59,23 @@ struct OpenStreamPlatformApp: App {
                 if showDetails {
                     detailsPanel
                 }
+
+                if showLaunch {
+                    AppleOpenStreamLaunchView()
+                        .transition(.opacity)
+                        .zIndex(20)
+                }
             }
             .animation(.easeInOut(duration: 0.22), value: player != nil)
-            .task { offlineAvailable = await offlineStore.record(for: "northstar-demo") != nil }
+            .task {
+                offlineAvailable = await offlineStore.record(for: "openstream-demo") != nil
+                try? await Task.sleep(for: .milliseconds(reduceMotion ? 220 : 1_300))
+                if reduceMotion {
+                    showLaunch = false
+                } else {
+                    withAnimation(.easeOut(duration: 0.22)) { showLaunch = false }
+                }
+            }
         }
     }
 
@@ -87,7 +103,7 @@ struct OpenStreamPlatformApp: App {
     private func playBundledDemo() {
         guard let bundledURL = Bundle.main.url(forResource: "openstream_demo", withExtension: "mp4") else { return }
         Task {
-            let url = await offlineStore.record(for: "northstar-demo")?.localURL ?? bundledURL
+            let url = await offlineStore.record(for: "openstream-demo")?.localURL ?? bundledURL
             startPlayback(url: url)
         }
     }
@@ -124,13 +140,36 @@ struct OpenStreamPlatformApp: App {
         offlineBusy = true
         Task {
             if offlineAvailable {
-                try? await offlineStore.remove(mediaID: "northstar-demo")
+                try? await offlineStore.remove(mediaID: "openstream-demo")
                 offlineAvailable = false
-            } else if (try? await offlineStore.makeAvailable(mediaID: "northstar-demo", sourceURL: url)) != nil {
+            } else if (try? await offlineStore.makeAvailable(mediaID: "openstream-demo", sourceURL: url)) != nil {
                 offlineAvailable = true
             }
             offlineBusy = false
         }
+    }
+}
+
+private struct AppleOpenStreamLaunchView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.02, green: 0.025, blue: 0.035).ignoresSafeArea()
+            Text("openStream")
+                .font(.system(size: 38, weight: .heavy, design: .rounded))
+                .tracking(1.4)
+                .foregroundStyle(.white)
+                .opacity(reduceMotion ? 1 : (appeared ? 1 : 0))
+                .scaleEffect(reduceMotion ? 1 : (appeared ? 1 : 0.94))
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 0.52)) { appeared = true }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("OpenStream")
     }
 }
 

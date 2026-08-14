@@ -47,6 +47,11 @@ class LibraryStore(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_SUBS, false)
         set(value) { prefs.edit().putBoolean(KEY_AUTO_SUBS, value).apply() }
 
+    /** When enabled, a completed device-backed playback removes only its own offline copy. */
+    var deleteOfflineAfterWatched: Boolean
+        get() = prefs.getBoolean(KEY_DELETE_OFFLINE_AFTER_WATCHED, false)
+        set(value) { prefs.edit().putBoolean(KEY_DELETE_OFFLINE_AFTER_WATCHED, value).apply() }
+
     fun folders(): List<LibraryFolder> {
         val raw = prefs.getString(KEY_FOLDERS, "[]") ?: "[]"
         return try {
@@ -95,5 +100,6 @@ class LibraryStore(context: Context) {
         const val KEY_OMDB = "omdbApiKey.v1"
         const val KEY_METADATA_OPT_IN = "metadataOptIn.v1"
         const val KEY_AUTO_SUBS = "autoSubtitles.v1"
+        const val KEY_DELETE_OFFLINE_AFTER_WATCHED = "deleteOfflineAfterWatched.v1"
     }
 }

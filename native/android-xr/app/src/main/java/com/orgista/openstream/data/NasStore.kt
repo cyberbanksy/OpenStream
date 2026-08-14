@@ -31,7 +31,35 @@ data class StremioCatalog(
     val id: String,
     val name: String,
     val requiresInput: Boolean = false,
+    val supportsSearch: Boolean = false,
 )
+
+object StremioAddonPresentation {
+    fun isRecommendationProvider(addon: StremioAddon): Boolean =
+        addon.manifestId == "community.watch.next" || addon.name.equals("Watch Next", ignoreCase = true)
+
+    fun usage(addon: StremioAddon): String = if (isRecommendationProvider(addon)) {
+        "Adds recommendations to Discover"
+    } else {
+        usage(addon.resources)
+    }
+
+    fun usage(resources: Set<String>): String = buildList {
+        if ("catalog" in resources) add("Adds rows to Discover")
+        if ("meta" in resources) add("Adds title details")
+        if ("stream" in resources) add("Finds playback streams")
+        if ("subtitles" in resources) add("Adds captions during playback")
+    }.joinToString(" · ").ifBlank { "Connected add-on" }
+}
+
+object StremioAddonRemovalPolicy {
+    fun visible(
+        builtIns: List<StremioAddon>,
+        custom: List<StremioAddon>,
+        removedBuiltInIds: Set<String>,
+    ): List<StremioAddon> = (builtIns.filterNot { it.id in removedBuiltInIds } + custom)
+        .distinctBy { it.manifestId to it.transportUrl }
+}
 
 /**
  * Connection storage in app-private preferences. Credentials never leave the
@@ -115,6 +143,7 @@ class ConnectionStore(context: Context) {
                             id = id,
                             name = catalog.optString("name", id),
                             requiresInput = catalog.optBoolean("requiresInput"),
+                            supportsSearch = catalog.optBoolean("supportsSearch"),
                         )
                     }
                 }.orEmpty()
@@ -132,8 +161,8 @@ class ConnectionStore(context: Context) {
             emptyList()
         }
         val disabled = prefs.getStringSet(KEY_STREMIO_DISABLED, emptySet()).orEmpty()
-        return (BuiltInStremioAddons.all + custom)
-            .distinctBy { it.manifestId to it.transportUrl }
+        val removedBuiltIns = prefs.getStringSet(KEY_STREMIO_REMOVED_BUILT_INS, emptySet()).orEmpty()
+        return StremioAddonRemovalPolicy.visible(BuiltInStremioAddons.all, custom, removedBuiltIns)
             .map { addon -> addon.copy(enabled = addon.id !in disabled) }
     }
 
@@ -157,7 +186,8 @@ class ConnectionStore(context: Context) {
                                         .put("type", catalog.type)
                                         .put("id", catalog.id)
                                         .put("name", catalog.name)
-                                        .put("requiresInput", catalog.requiresInput),
+                                        .put("requiresInput", catalog.requiresInput)
+                                        .put("supportsSearch", catalog.supportsSearch),
                                 )
                             }
                         },
@@ -169,7 +199,14 @@ class ConnectionStore(context: Context) {
 
     fun removeStremio(id: String) {
         if (BuiltInStremioAddons.all.any { it.id == id }) {
-            setStremioEnabled(id, false)
+            val removed = prefs.getStringSet(KEY_STREMIO_REMOVED_BUILT_INS, emptySet()).orEmpty().toMutableSet()
+            removed += id
+            val disabled = prefs.getStringSet(KEY_STREMIO_DISABLED, emptySet()).orEmpty().toMutableSet()
+            disabled -= id
+            prefs.edit()
+                .putStringSet(KEY_STREMIO_REMOVED_BUILT_INS, removed)
+                .putStringSet(KEY_STREMIO_DISABLED, disabled)
+                .apply()
             return
         }
         val array = JSONArray()
@@ -191,7 +228,8 @@ class ConnectionStore(context: Context) {
                                         .put("type", catalog.type)
                                         .put("id", catalog.id)
                                         .put("name", catalog.name)
-                                        .put("requiresInput", catalog.requiresInput),
+                                        .put("requiresInput", catalog.requiresInput)
+                                        .put("supportsSearch", catalog.supportsSearch),
                                 )
                             }
                         },
@@ -207,9 +245,42 @@ class ConnectionStore(context: Context) {
         prefs.edit().putStringSet(KEY_STREMIO_DISABLED, disabled).apply()
     }
 
+    fun youtubeChannels(): List<YoutubeChannelSource> =
+        YoutubeChannelSourceCodec.decode(prefs.getString(KEY_YOUTUBE_CHANNELS, "[]") ?: "[]")
+
+    fun addYoutubeChannel(channel: YoutubeChannelSource) {
+        val existing = youtubeChannels().firstOrNull { it.channelId == channel.channelId }
+        val saved = if (existing == null) channel else channel.copy(id = existing.id, enabled = existing.enabled)
+        val updated = youtubeChannels().filterNot { it.channelId == channel.channelId } + saved
+        prefs.edit().putString(KEY_YOUTUBE_CHANNELS, YoutubeChannelSourceCodec.encode(updated)).apply()
+    }
+
+    fun removeYoutubeChannel(id: String) {
+        val updated = youtubeChannels().filterNot { it.id == id }
+        prefs.edit().putString(KEY_YOUTUBE_CHANNELS, YoutubeChannelSourceCodec.encode(updated)).apply()
+    }
+
+    fun setYoutubeChannelEnabled(id: String, enabled: Boolean) {
+        val updated = youtubeChannels().map { source ->
+            if (source.id == id) source.copy(enabled = enabled) else source
+        }
+        prefs.edit().putString(KEY_YOUTUBE_CHANNELS, YoutubeChannelSourceCodec.encode(updated)).apply()
+    }
+
+    fun discoverFeedPreferences(): DiscoverFeedPreferences = DiscoverFeedPreferencesCodec.decode(
+        prefs.getString(KEY_DISCOVER_FEED, "") ?: "",
+    )
+
+    fun saveDiscoverFeedPreferences(preferences: DiscoverFeedPreferences) {
+        prefs.edit().putString(KEY_DISCOVER_FEED, DiscoverFeedPreferencesCodec.encode(preferences)).apply()
+    }
+
     private companion object {
         const val KEY_NAS = "nas.v1"
         const val KEY_STREMIO = "stremio.v1"
         const val KEY_STREMIO_DISABLED = "stremio.disabled.v1"
+        const val KEY_STREMIO_REMOVED_BUILT_INS = "stremio.removed-builtins.v1"
+        const val KEY_YOUTUBE_CHANNELS = "youtube.channels.v1"
+        const val KEY_DISCOVER_FEED = "discover.feed.v1"
     }
 }

@@ -2,6 +2,7 @@ package com.orgista.openstream.media;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
@@ -21,12 +22,13 @@ public final class HdrCapabilityProbe {
 
     public static MediaCapabilityReport inspect(Context context) {
         Map<MediaCapabilityReport.DynamicRange, SupportState> display = displaySupport(context);
-        Map<MediaCapabilityReport.DynamicRange, SupportState> decoder = decoderSupport();
         DecoderDetails details = decoderDetails();
+        Map<MediaCapabilityReport.DynamicRange, SupportState> decoder = decoderSupport(details);
         return new MediaCapabilityReport(
                 display,
                 decoder,
                 details.dolbyVisionProfiles,
+                details.dolbyVisionBitstreamProfiles,
                 details.hevcMain10,
                 details.av1Main10
         );
@@ -36,7 +38,15 @@ public final class HdrCapabilityProbe {
         Map<MediaCapabilityReport.DynamicRange, SupportState> result = baseline();
         Display display;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            display = context.getDisplay();
+            try {
+                display = context.getDisplay();
+            } catch (UnsupportedOperationException ignored) {
+                display = null;
+            }
+            if (display == null) {
+                DisplayManager manager = context.getSystemService(DisplayManager.class);
+                display = manager == null ? null : manager.getDisplay(Display.DEFAULT_DISPLAY);
+            }
         } else {
             WindowManager manager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
             display = manager == null ? null : manager.getDefaultDisplay();
@@ -58,18 +68,16 @@ public final class HdrCapabilityProbe {
         return result;
     }
 
-    private static Map<MediaCapabilityReport.DynamicRange, SupportState> decoderSupport() {
+    private static Map<MediaCapabilityReport.DynamicRange, SupportState> decoderSupport(DecoderDetails details) {
         Map<MediaCapabilityReport.DynamicRange, SupportState> result = baseline();
-        boolean dolby = hasDecoder(MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION);
-        boolean hevc = hasDecoder(MediaFormat.MIMETYPE_VIDEO_HEVC);
         result.put(MediaCapabilityReport.DynamicRange.DOLBY_VISION,
-                dolby ? SupportState.SUPPORTED : SupportState.UNSUPPORTED);
+                !details.dolbyVisionProfiles.isEmpty() ? SupportState.SUPPORTED : SupportState.UNSUPPORTED);
         result.put(MediaCapabilityReport.DynamicRange.HDR10,
-                hevc ? SupportState.RUNTIME_CHECK : SupportState.UNSUPPORTED);
+                details.hevcMain10 ? SupportState.SUPPORTED : SupportState.UNSUPPORTED);
         result.put(MediaCapabilityReport.DynamicRange.HDR10_PLUS,
-                hevc ? SupportState.RUNTIME_CHECK : SupportState.UNSUPPORTED);
+                details.hevcMain10Plus ? SupportState.SUPPORTED : SupportState.UNSUPPORTED);
         result.put(MediaCapabilityReport.DynamicRange.HLG,
-                hevc ? SupportState.RUNTIME_CHECK : SupportState.UNSUPPORTED);
+                details.hevcMain10 ? SupportState.SUPPORTED : SupportState.UNSUPPORTED);
         return result;
     }
 
@@ -84,23 +92,11 @@ public final class HdrCapabilityProbe {
         return result;
     }
 
-    private static boolean hasDecoder(String mimeType) {
-        for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos()) {
-            if (info.isEncoder()) {
-                continue;
-            }
-            for (String supportedType : info.getSupportedTypes()) {
-                if (mimeType.equalsIgnoreCase(supportedType)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
     private static DecoderDetails decoderDetails() {
         Set<String> dolbyProfiles = new LinkedHashSet<>();
+        Set<Integer> dolbyBitstreamProfiles = new LinkedHashSet<>();
         boolean hevcMain10 = false;
+        boolean hevcMain10Plus = false;
         boolean av1Main10 = false;
 
         for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos()) {
@@ -117,15 +113,24 @@ public final class HdrCapabilityProbe {
                 for (MediaCodecInfo.CodecProfileLevel profileLevel : capabilities.profileLevels) {
                     if (MediaFormat.MIMETYPE_VIDEO_HEVC.equalsIgnoreCase(type)) {
                         hevcMain10 |= isHevcMain10(profileLevel.profile);
+                        hevcMain10Plus |= isHevcMain10Plus(profileLevel.profile);
                     } else if (MediaFormat.MIMETYPE_VIDEO_AV1.equalsIgnoreCase(type)) {
                         av1Main10 |= isAv1Main10(profileLevel.profile);
                     } else if (MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION.equalsIgnoreCase(type)) {
                         dolbyProfiles.add(dolbyProfileName(profileLevel.profile));
+                        DolbyVisionCodecString.bitstreamProfile(profileLevel.profile)
+                                .ifPresent(dolbyBitstreamProfiles::add);
                     }
                 }
             }
         }
-        return new DecoderDetails(hevcMain10, av1Main10, new ArrayList<>(dolbyProfiles));
+        return new DecoderDetails(
+                hevcMain10,
+                hevcMain10Plus,
+                av1Main10,
+                new ArrayList<>(dolbyProfiles),
+                new ArrayList<>(dolbyBitstreamProfiles)
+        );
     }
 
     @SuppressLint("InlinedApi")
@@ -140,6 +145,11 @@ public final class HdrCapabilityProbe {
         return profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10
                 || profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10
                 || profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus;
+    }
+
+    @SuppressLint("InlinedApi")
+    private static boolean isHevcMain10Plus(int profile) {
+        return profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus;
     }
 
     private static String dolbyProfileName(int profile) {
@@ -162,7 +172,9 @@ public final class HdrCapabilityProbe {
 
     private record DecoderDetails(
             boolean hevcMain10,
+            boolean hevcMain10Plus,
             boolean av1Main10,
-            List<String> dolbyVisionProfiles
+            List<String> dolbyVisionProfiles,
+            List<Integer> dolbyVisionBitstreamProfiles
     ) {}
 }

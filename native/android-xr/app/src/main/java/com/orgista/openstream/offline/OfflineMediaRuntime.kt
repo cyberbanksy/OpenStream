@@ -27,13 +27,13 @@ import com.orgista.openstream.R
 import com.orgista.openstream.data.MediaItem
 import com.orgista.openstream.data.StremioStream
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
-import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -48,16 +48,24 @@ data class OfflineEntry(
     val contentLength: Long,
 ) {
     val completed: Boolean get() = state == Download.STATE_COMPLETED
+    val identityVerified: Boolean get() = item.candidates.any {
+        it.offlineDownloadId == downloadId && it.offlineIdentityVerified
+    }
 }
+
+data class OfflineStorageStats(
+    val totalBytes: Long,
+    val availableBytes: Long,
+    val reservedBytes: Long,
+    val downloadedBytes: Long,
+)
 
 /** Process-wide Media3 download/cache graph, backed by app-specific device storage. */
 @UnstableApi
 class OfflineMediaRuntime private constructor(private val context: Context) {
     private val databaseProvider = StandaloneDatabaseProvider(context)
-    private val cacheDirectory = File(
-        context.getExternalFilesDir(null) ?: context.filesDir,
-        "offline-media",
-    ).apply { mkdirs() }
+    val storageTarget = OfflineStoragePolicy.resolve(context)
+    private val cacheDirectory = storageTarget.directory
     val cache = SimpleCache(cacheDirectory, NoOpCacheEvictor(), databaseProvider)
     val upstreamFactory: DataSource.Factory = SchemeRoutingDataSource.Factory(context)
     private val executor = Executors.newFixedThreadPool(3)
@@ -87,7 +95,20 @@ class OfflineMediaRuntime private constructor(private val context: Context) {
         refresh()
     }
 
-    fun completedItems(): List<MediaItem> = entries.value.filter(OfflineEntry::completed).map(OfflineEntry::item)
+    fun completedItems(): List<MediaItem> = entries.value
+        .filter { it.completed && it.identityVerified }
+        .map(OfflineEntry::item)
+
+    fun storageStats(): OfflineStorageStats {
+        val fileSystem = StatFs(cacheDirectory.absolutePath)
+        val reserve = 256L * 1024L * 1024L
+        return OfflineStorageStats(
+            totalBytes = fileSystem.totalBytes,
+            availableBytes = (fileSystem.availableBytes - reserve).coerceAtLeast(0L),
+            reservedBytes = reserve,
+            downloadedBytes = entries.value.sumOf { it.bytesDownloaded.coerceAtLeast(0L) },
+        )
+    }
 
     fun entryForMediaId(mediaId: String): OfflineEntry? = entries.value.firstOrNull { it.item.id == mediaId }
 
@@ -104,11 +125,46 @@ class OfflineMediaRuntime private constructor(private val context: Context) {
         DownloadService.sendRemoveDownload(context, OpenStreamDownloadService::class.java, downloadId, false)
     }
 
+    /** Removes completed, partial, queued, and failed downloads while preserving all non-download app data. */
+    fun removeAll(): Int {
+        val count = downloadCount()
+        if (count > 0) {
+            DownloadService.sendRemoveAllDownloads(context, OpenStreamDownloadService::class.java, false)
+        }
+        return count
+    }
+
+    suspend fun replace(item: MediaItem, currentDownloadId: String, streams: List<StremioStream>): OfflineStreamDescriptor {
+        remove(currentDownloadId)
+        repeat(50) {
+            if (downloadManager.downloadIndex.getDownload(currentDownloadId) == null) return enqueue(item, streams)
+            delay(100)
+        }
+        throw IOException("The old offline copy is still being removed. Try again in a moment.")
+    }
+
+    fun downloadCount(): Int = runCatching {
+        var count = 0
+        downloadManager.downloadIndex.getDownloads().use { cursor ->
+            while (cursor.moveToNext()) count++
+        }
+        count
+    }.getOrDefault(entries.value.size)
+
+    fun canChangeStorage(): Boolean = OfflineStoragePolicy.canChange(downloadCount())
+
     suspend fun enqueue(item: MediaItem, streams: List<StremioStream>): OfflineStreamDescriptor {
         val profile = OfflineDeviceCapabilities.inspect(context)
-        val reserve = 256L * 1024L * 1024L
-        val available = (StatFs(cacheDirectory.absolutePath).availableBytes - reserve).coerceAtLeast(0L)
-        val selected = OfflineQualityPolicy.select(streams, profile, available)
+        val available = storageStats().availableBytes
+        val verifiedStreams = streams.filter { OfflineStreamIdentityPolicy.isVerifiedMatch(item, it) }
+        if (verifiedStreams.isEmpty()) {
+            val mismatch = streams.any { OfflineStreamIdentityPolicy.classify(item, it) == OfflineIdentityResult.MISMATCH }
+            throw IOException(
+                if (mismatch) "The provider returned a file for a different title. Nothing was downloaded."
+                else "The provider did not identify the media file, so OpenStream could not verify this offline copy.",
+            )
+        }
+        val selected = OfflineQualityPolicy.select(verifiedStreams, profile, available)
             ?: throw IOException("No compatible stream fits the available device storage.")
         val data = OfflineMetadata.encode(item, selected)
         val request = buildDownloadRequest(downloadId(item.id), selected.stream.url, data, profile)
@@ -173,20 +229,38 @@ class OfflineMediaRuntime private constructor(private val context: Context) {
                     while (cursor.moveToNext()) {
                         val download = cursor.download
                         val item = OfflineMetadata.decode(download) ?: continue
+                        val completed = download.state == Download.STATE_COMPLETED
+                        val contentLength = OfflineProgressPolicy.contentLength(
+                            reportedLength = download.contentLength,
+                            bytesDownloaded = download.bytesDownloaded,
+                            completed = completed,
+                        )
                         add(
                             OfflineEntry(
                                 downloadId = download.request.id,
                                 item = item,
                                 state = download.state,
-                                percent = download.percentDownloaded.takeIf { it >= 0f }?.toInt()?.coerceIn(0, 100),
+                                percent = OfflineProgressPolicy.percent(
+                                    reportedPercent = download.percentDownloaded,
+                                    bytesDownloaded = download.bytesDownloaded,
+                                    contentLength = contentLength,
+                                    completed = completed,
+                                ),
                                 bytesDownloaded = download.bytesDownloaded,
-                                contentLength = download.contentLength,
+                                contentLength = contentLength,
                             ),
                         )
                     }
                 }
             }.sortedByDescending { it.completed }
         }.getOrDefault(emptyList())
+    }
+
+    private fun release() {
+        runCatching { downloadManager.release() }
+        runCatching { cache.release() }
+        runCatching { databaseProvider.close() }
+        executor.shutdownNow()
     }
 
     companion object {
@@ -197,6 +271,20 @@ class OfflineMediaRuntime private constructor(private val context: Context) {
 
         fun get(context: Context): OfflineMediaRuntime = instance ?: synchronized(this) {
             instance ?: OfflineMediaRuntime(context.applicationContext).also { instance = it }
+        }
+
+        /** Switches storage immediately when no downloads would be orphaned. */
+        fun configureStorage(context: Context, requested: OfflineStorageLocation): Boolean = synchronized(this) {
+            val appContext = context.applicationContext
+            val target = OfflineStoragePolicy.resolve(appContext, requested)
+            if (target.location != requested) return@synchronized false
+            val active = instance
+            if (active != null && !active.canChangeStorage()) return@synchronized false
+            OfflineStoragePolicy.saveRequestedLocation(appContext, requested)
+            if (active?.storageTarget?.location == requested) return@synchronized true
+            active?.release()
+            instance = OfflineMediaRuntime(appContext)
+            true
         }
 
         private fun downloadId(mediaId: String): String = MessageDigest.getInstance("SHA-256")

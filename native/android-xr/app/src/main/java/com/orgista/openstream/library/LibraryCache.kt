@@ -64,6 +64,7 @@ object LibraryCache {
         .put("runtimeMinutes", runtimeMinutes)
         .putOpt("posterUrl", posterUrl)
         .putOpt("backdropUrl", backdropUrl)
+        .putOpt("trailerYoutubeKey", trailerYoutubeKey)
         .putOpt("imdbId", imdbId)
         .putOpt("tmdbId", tmdbId)
         .put("genres", JSONArray(genres))
@@ -98,6 +99,7 @@ object LibraryCache {
         runtimeMinutes = optInt("runtimeMinutes"),
         posterUrl = optString("posterUrl").takeIf { it.isNotBlank() },
         backdropUrl = optString("backdropUrl").takeIf { it.isNotBlank() },
+        trailerYoutubeKey = optString("trailerYoutubeKey").takeIf { it.isNotBlank() },
         imdbId = optString("imdbId").takeIf { it.isNotBlank() },
         tmdbId = if (has("tmdbId") && !isNull("tmdbId")) optInt("tmdbId") else null,
         genres = optJSONArray("genres").toStrings(),

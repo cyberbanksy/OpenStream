@@ -89,6 +89,10 @@ dependencies {
     // Async image loading for remote TMDB posters/backdrops.
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Small, on-device QR encoder for the temporary LAN setup URL. The
+    // payload never leaves the device and the one-time code is not embedded.
+    implementation("com.google.zxing:core:3.5.4")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20260719")
 }

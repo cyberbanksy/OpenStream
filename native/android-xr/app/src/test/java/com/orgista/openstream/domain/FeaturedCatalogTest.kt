@@ -6,6 +6,7 @@ import org.junit.Test
 class FeaturedCatalogTest {
     @Test
     fun `featured selection wraps and follows a selected title`() {
+        assertEquals(12_000L, FeaturedCatalog.ROTATION_MILLIS)
         assertEquals(0, FeaturedCatalog.nextIndex(currentIndex = 2, size = 3))
         assertEquals(2, FeaturedCatalog.indexForSelection(listOf("a", "b", "c"), "c"))
     }

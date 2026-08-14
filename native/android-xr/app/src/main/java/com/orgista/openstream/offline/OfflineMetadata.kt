@@ -12,7 +12,8 @@ import org.json.JSONObject
 
 internal object OfflineMetadata {
     fun encode(item: MediaItem, descriptor: OfflineStreamDescriptor): ByteArray = JSONObject()
-        .put("version", 1)
+        .put("version", 2)
+        .put("identityVerified", true)
         .put("id", item.id)
         .put("kind", item.kind.name)
         .put("title", item.title)
@@ -23,6 +24,7 @@ internal object OfflineMetadata {
         .put("runtimeMinutes", item.runtimeMinutes)
         .put("posterUrl", item.posterUrl.orEmpty())
         .put("backdropUrl", item.backdropUrl.orEmpty())
+        .put("trailerYoutubeKey", item.trailerYoutubeKey.orEmpty())
         .put("imdbId", item.imdbId.orEmpty())
         .put("tmdbId", item.tmdbId ?: 0)
         .put("genres", JSONArray(item.genres))
@@ -40,6 +42,7 @@ internal object OfflineMetadata {
     fun decode(download: Download): MediaItem? = runCatching {
         val json = JSONObject(download.request.data.toString(Charsets.UTF_8))
         val originalId = json.getString("id")
+        val identityVerified = json.optInt("version", 1) >= 2 && json.optBoolean("identityVerified", false)
         fun optional(key: String) = json.optString(key).trim().takeIf(String::isNotBlank)
         fun strings(key: String): List<String> {
             val values = json.optJSONArray(key) ?: return emptyList()
@@ -61,6 +64,7 @@ internal object OfflineMetadata {
             runtimeMinutes = json.optInt("runtimeMinutes"),
             posterUrl = optional("posterUrl"),
             backdropUrl = optional("backdropUrl"),
+            trailerYoutubeKey = optional("trailerYoutubeKey"),
             imdbId = optional("imdbId"),
             tmdbId = json.optInt("tmdbId").takeIf { it > 0 },
             candidates = listOf(
@@ -71,6 +75,7 @@ internal object OfflineMetadata {
                     uri = download.request.uri.toString(),
                     formatLabel = json.optString("qualityLabel", "Downloaded"),
                     offlineDownloadId = download.request.id,
+                    offlineIdentityVerified = identityVerified,
                 ),
             ),
             genres = strings("genres"),
