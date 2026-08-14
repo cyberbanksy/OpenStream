@@ -28,3 +28,19 @@ object OpenStreamBrandGeometry {
         OpenStreamBrandBar(y = 66f, length = 40f),
     )
 }
+
+/** Keeps the heavy three-bar mark comfortably inside every launcher mask. */
+object LauncherIconPresentationPolicy {
+    const val adaptiveCanvasDp = 108f
+    const val foregroundInsetDp = 20f
+
+    private val contentWidth = OpenStreamBrandGeometry.bars.maxOf { it.length } + OpenStreamBrandGeometry.strokeWidth
+    private val contentHeight =
+        OpenStreamBrandGeometry.bars.last().y - OpenStreamBrandGeometry.bars.first().y + OpenStreamBrandGeometry.strokeWidth
+
+    fun renderedMarkWidthDp(): Float =
+        contentWidth / OpenStreamBrandGeometry.viewBox * (adaptiveCanvasDp - foregroundInsetDp * 2f)
+
+    fun renderedMarkHeightDp(): Float =
+        contentHeight / OpenStreamBrandGeometry.viewBox * (adaptiveCanvasDp - foregroundInsetDp * 2f)
+}

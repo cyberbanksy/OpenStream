@@ -95,6 +95,7 @@ dependencies {
     implementation("androidx.media3:media3-session:$media3Version")
     implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.1-0.13.0")
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
+    implementation("com.google.zxing:core:3.5.4")
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     testImplementation("junit:junit:4.13.2")

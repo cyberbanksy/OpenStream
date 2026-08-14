@@ -1,6 +1,7 @@
 package com.orgista.openstream.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LaunchPresentationPolicyTest {
@@ -33,5 +34,12 @@ class LaunchPresentationPolicyTest {
         assertEquals(12.5f, OpenStreamBrandGeometry.strokeWidth)
         assertEquals(listOf(31f, 48.5f, 66f), OpenStreamBrandGeometry.bars.map { it.y })
         assertEquals(listOf(40f, 56f, 40f), OpenStreamBrandGeometry.bars.map { it.length })
+    }
+
+    @Test
+    fun `launcher mark is substantially smaller than the adaptive icon safe zone`() {
+        assertEquals(20f, LauncherIconPresentationPolicy.foregroundInsetDp)
+        assertTrue(LauncherIconPresentationPolicy.renderedMarkWidthDp() <= 50f)
+        assertTrue(LauncherIconPresentationPolicy.renderedMarkHeightDp() <= 36f)
     }
 }
