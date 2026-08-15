@@ -1,0 +1,45 @@
+OPENSTREAM POST-DEPLOYMENT SOURCE CHECKLIST
+============================================
+
+OPERATOR-ONLY — NOT RUNTIME CONFIGURATION
+
+This file is a human checklist. It may be inspected by policy audits, but it must not be read as configuration, imported, bundled, packaged, or compiled by any OpenStream app, build script, migration, fixture, or server runtime. A fresh install must remain empty until its owner provisions sources through Sources, Settings, or Web Management.
+
+Never paste credentials, private manifest URLs, tokens, or passwords into this file or any tracked project file. Retrieve private values from the device owner or an approved operating-system secret store at deployment time. Do not put them in shell history, logs, screenshots, APKs, or deployment notes.
+
+INTERPRETING CONTENT REQUESTS
+-----------------------------
+
+When the owner asks to add, include, restore, or preload content, channels, libraries, add-ons, metadata, or server downloads, treat the request as post-deployment provisioning for the named device or account. Implement only generic adapters and management UI in source code. Never turn the requested data into defaults, constants, seed catalogs, fallback rows, sample preferences, packaged cache files, migrations, or auto-installed providers.
+
+CURRENT DESIRED INSTALLATION PROFILE
+------------------------------------
+
+Provision only the items requested for that installation. Names below describe capabilities; they are not permission to embed provider locations or credentials.
+
+[ ] Metadata: enable the user's metadata opt-in, then enter TMDB and OMDb credentials from the secure deployment record.
+[ ] Stremio catalog/details: add Cinemeta, or the owner's selected movie/series catalog provider, through Sources or Web Management.
+[ ] Stremio playback: add the owner's personal Torrentio/debrid or other direct-stream manifest from the secure deployment record.
+[ ] Recommendations: add the owner's Watch Next instance when requested.
+[ ] Captions: add OpenSubtitles v3, or the owner's selected subtitle provider.
+[ ] Radarr: enter its private base address and API key under Server downloads, choose the requested default destination, and run Test.
+[ ] Sonarr: enter its private base address and API key under Server downloads, choose the requested default destination, and run Test.
+[ ] NAS/local library: add and test the NAS share before adding library folders. The currently requested display folder is "ServerPlus / movies"; its real host, mount path, username, and password stay in the secure deployment record.
+[ ] Live TV: add the owner's Xtream or M3U profile through Live sources, then select the desired local, entertainment, premium, sports, league, and PPV channels in Channel Manager. Do not bundle a provider or a public fallback playlist.
+[ ] YouTube: add only channel handles or IDs explicitly requested by the device owner. No channels are part of the default profile.
+[ ] Trakt: when requested, enter the owner-controlled application credentials and complete device authorization.
+[ ] Discover feed: enable and order Up Next, Library, Add-Ons, and YouTube for the owner without changing the empty-install defaults.
+
+POST-PROVISIONING VERIFICATION
+------------------------------
+
+[ ] Every configured add-on test resolves to a check mark.
+[ ] Discover contains only rails supplied by enabled sources and does not show demo content.
+[ ] Metadata, artwork, title details, episodes, global search, streams, audio, and captions work for representative titles.
+[ ] Radarr and Sonarr tests succeed without exposing their addresses or keys in logs.
+[ ] NAS content identity matches the selected title before playback or download.
+[ ] Live TV opens only the selected lineup and handles unavailable channels without replacing them with another channel.
+[ ] Device downloads complete, report storage/progress, play offline, and remain distinct from ARR server requests.
+[ ] Removing or disabling a source removes its cached rails after refresh.
+
+If the requested source is unavailable during deployment, leave the app unconfigured for that source and record the missing step in the operator's private deployment record. Do not compensate with a hardcoded provider or sample content.

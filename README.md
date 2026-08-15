@@ -10,6 +10,8 @@ The account-free Netflix regional Top 10 cache, its daily ranking algorithm, fal
 
 Production builds ship with no demo titles, channels, YouTube subscriptions, Stremio add-ons, IPTV playlists, or sample server connections. Viewers add every content source through **Sources**, **Settings**, or **Web Management**, and those choices remain in private application storage. Stremio discovery accepts only movie and series catalogs; book and arbitrary `other` catalogs are ignored.
 
+Natural-language requests to add or restore content are always treated as post-deployment provisioning, never as permission to compile data or provider configuration into the app. The operator-only [`POST_DEPLOYMENT_SOURCES.txt`](POST_DEPLOYMENT_SOURCES.txt) records what may need to be configured after installation without storing private values or becoming runtime input.
+
 ## Kids Mode
 
 First launch asks who watches on the device. Choosing **Kids Mode** walks a guardian through a rating cap (Little kids G/TV-Y, Big kids PG/TV-PG, or Teens PG-13/TV-14), an optional blocklist of titles or words, and an explicit irreversible confirmation. Once enabled:

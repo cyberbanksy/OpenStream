@@ -9,6 +9,14 @@ This file is the operational source of truth for OpenStream's metadata, playback
 - Canonical publication target: the private [`cyberbanksy/OpenStream`](https://github.com/cyberbanksy/OpenStream) repository. The legacy `orgista/openstream` remote is retained locally only to preserve history until migration is reviewed.
 - The Android application ID remains `com.orgista.openstream` only as a compatibility identifier. Changing it would install a second app and lose the existing app data, libraries, and resume history. It must not be presented as visible product branding.
 
+## Non-negotiable source provisioning rule
+
+OpenStream never hardcodes requested content or account configuration. Any request to add, include, restore, or preload titles, channels, catalogs, Stremio add-ons, ARR connections, NAS libraries, IPTV accounts, YouTube channels, metadata credentials, or similar sources means **provision them after deployment on the intended device or account** through **Sources**, **Settings**, or **Web Management**.
+
+Production code may implement generic adapters, schemas, and management UI. It must not turn a requested source into a constant, compiled catalog, packaged asset, seed cache, fallback row, migration default, sample preference, provider priority, or silently installed configuration. Tests may use clearly isolated local mocks or fixtures that cannot enter a production package. Every fresh install remains empty until its owner deliberately configures it.
+
+[`POST_DEPLOYMENT_SOURCES.txt`](POST_DEPLOYMENT_SOURCES.txt) is the human operator checklist for requested integrations. A policy audit may inspect it, but no runtime, migration, fixture, build, or packaging tool may use it as configuration, import it, or ship it. It contains names and verification steps only; real credentials, private manifest paths, account URLs, LAN topology, and tokens remain in device-private storage or an approved secret store and are never committed.
+
 ## Metadata credentials
 
 Never place a real API credential in source code, Gradle files, documentation, launch arguments, logs, screenshots, or an APK.

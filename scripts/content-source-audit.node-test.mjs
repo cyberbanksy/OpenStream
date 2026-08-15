@@ -44,3 +44,18 @@ test("fresh-install source definitions stay empty and provider-neutral", async (
   assert.doesNotMatch(combined, /raw\.githubusercontent\.com\/Free-TV|iptv-org\.github\.io\/iptv/i);
   assert.doesNotMatch(combined, /Northstar|Last Signal|Atlas NAS/i);
 });
+
+test("post-deployment source inventory remains an operator-only checklist", async () => {
+  const checklist = await readFile(join(projectRoot, "POST_DEPLOYMENT_SOURCES.txt"), "utf8");
+
+  assert.match(checklist, /OPERATOR-ONLY/i);
+  assert.match(checklist, /may be inspected by policy audits/i);
+  assert.match(checklist, /must not be read as configuration, imported, bundled, packaged, or compiled/i);
+  assert.match(checklist, /never paste credentials, private manifest URLs, tokens, or passwords/i);
+  assert.match(checklist, /Radarr/);
+  assert.match(checklist, /Sonarr/);
+  assert.match(checklist, /Stremio/);
+  assert.match(checklist, /Live TV/);
+  assert.match(checklist, /YouTube/);
+  assert.match(checklist, /NAS/);
+});
