@@ -38,8 +38,8 @@ class LaunchPresentationPolicyTest {
 
     @Test
     fun `launcher mark is substantially smaller than the adaptive icon safe zone`() {
-        assertEquals(20f, LauncherIconPresentationPolicy.foregroundInsetDp)
-        assertTrue(LauncherIconPresentationPolicy.renderedMarkWidthDp() <= 50f)
-        assertTrue(LauncherIconPresentationPolicy.renderedMarkHeightDp() <= 36f)
+        assertEquals(36f, LauncherIconPresentationPolicy.foregroundInsetDp)
+        assertTrue(LauncherIconPresentationPolicy.renderedMarkWidthDp() <= 26f)
+        assertTrue(LauncherIconPresentationPolicy.renderedMarkHeightDp() <= 18f)
     }
 }

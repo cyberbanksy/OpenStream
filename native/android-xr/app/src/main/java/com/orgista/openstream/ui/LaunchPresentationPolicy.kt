@@ -32,7 +32,7 @@ object OpenStreamBrandGeometry {
 /** Keeps the heavy three-bar mark comfortably inside every launcher mask. */
 object LauncherIconPresentationPolicy {
     const val adaptiveCanvasDp = 108f
-    const val foregroundInsetDp = 20f
+    const val foregroundInsetDp = 36f
 
     private val contentWidth = OpenStreamBrandGeometry.bars.maxOf { it.length } + OpenStreamBrandGeometry.strokeWidth
     private val contentHeight =
