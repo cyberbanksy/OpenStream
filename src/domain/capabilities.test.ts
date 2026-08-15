@@ -4,11 +4,11 @@ import type { MediaCandidate } from "./media";
 
 const candidate = (overrides: Partial<MediaCandidate> = {}): MediaCandidate => ({
   id: "candidate-1",
-  mediaId: "northstar",
-  sourceId: "atlas",
-  sourceName: "Atlas NAS",
+  mediaId: "configured-title",
+  sourceId: "configured-server",
+  sourceName: "Home Server",
   sourceKind: "smb",
-  uri: "https://media.openstream.test/northstar.m3u8",
+  uri: "https://media.openstream.test/configured-title.m3u8",
   bitrateMbps: 26,
   directPlay: true,
   verified: true,

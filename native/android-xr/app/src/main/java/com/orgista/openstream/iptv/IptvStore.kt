@@ -7,10 +7,9 @@ import java.util.UUID
 
 class IptvStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("openstream.iptv.v1", Context.MODE_PRIVATE)
-    private val catalogCache = IptvCatalogCache(context.applicationContext)
     private val guideCache = IptvGuideCache(context.applicationContext)
 
-    fun sources(): List<IptvSource> = BUILT_INS + listOfNotNull(custom())
+    fun sources(): List<IptvSource> = IptvSourceSelection.configured(custom())
 
     fun sessionSnapshot(): IptvSessionSnapshot = IptvSessionCatalog.snapshot
 
@@ -67,7 +66,6 @@ class IptvStore(context: Context) {
     }
 
     fun save(source: IptvSource) {
-        require(!source.builtIn)
         require(IptvEndpointPolicy.isAllowed(source.endpoint)) { "Enter an HTTP or HTTPS IPTV server address." }
         if (source.type == IptvSourceType.XTREAM) {
             require(source.username.isNotBlank() && source.password.isNotBlank()) { "Username and password are required." }
@@ -87,60 +85,19 @@ class IptvStore(context: Context) {
         guideCache.remove(CUSTOM_ID)
     }
 
-    fun cachedBuiltInChannels(): List<IptvChannel> = BUILT_INS.flatMap { catalogCache.load(it.id) }
-
     /**
-     * Primes the process-local Live session from the small public catalog cache.
-     * Private provider credentials/routes are intentionally never persisted here.
+     * Primes the process-local Live session from channels explicitly saved in
+     * Channel Manager. Provider routes are fetched from the configured source.
      */
     fun warmCachedSession(revision: Int): Boolean {
         val snapshot = sessionSnapshot()
         if (snapshot.channels.isNotEmpty() && snapshot.revision == revision && snapshot.preparedGuide != null) {
             return false
         }
-        val startedAt = android.os.SystemClock.elapsedRealtime()
         val manual = manualChannels()
-
-        // Free-TV is a deliberately tiny bundled/public cache. Install it as
-        // the first snapshot before touching IPTV-org's much larger catalog,
-        // so a cold-process Live tap has useful rows to paint immediately.
-        // The complete searchable catalog replaces it below in the same
-        // worker call. Private configured-provider routes are never persisted.
-        if (snapshot.channels.isEmpty() || snapshot.revision != revision || snapshot.preparedGuide == null) {
-            val quickChannels = IptvCatalogPolicy.mergeForPlayback(catalogCache.load(FREE_TV.id) + manual)
-            if (quickChannels.isNotEmpty()) {
-                val quickPrepared = LivePreparedGuidePolicy.build(
-                    channels = quickChannels,
-                    programs = snapshot.programs,
-                    enabledPackageIds = enabledPackageIds(),
-                    favoriteChannelKeys = favoriteChannelKeys(),
-                )
-                synchronized(IptvSessionCatalog) {
-                    IptvSessionCatalog.snapshot = IptvSessionSnapshot(
-                        channels = quickChannels,
-                        programs = snapshot.programs,
-                        revision = revision,
-                        refreshedAtMillis = 0L,
-                        preparedGuide = quickPrepared,
-                    )
-                }
-                com.orgista.openstream.Logs.event(
-                    "live quick cache ready in ${android.os.SystemClock.elapsedRealtime() - startedAt}ms: " +
-                        "${quickPrepared.activeChannels.size} channels",
-                )
-            }
-        }
-
-        val current = sessionSnapshot()
-        val cached = if (current.channels.isNotEmpty() && current.revision == revision &&
-            current.channels.any { it.sourceId == IPTV_ORG_US.id }
-        ) {
-            current.channels
-        } else {
-            IptvCatalogPolicy.mergeForPlayback(cachedBuiltInChannels() + manual)
-        }
+        val cached = IptvCatalogPolicy.mergeForPlayback(manual)
         if (cached.isEmpty()) return false
-        val programs = current.programs
+        val programs = snapshot.programs
         val prepared = LivePreparedGuidePolicy.build(
             channels = cached,
             programs = programs,
@@ -152,22 +109,11 @@ class IptvStore(context: Context) {
                 channels = cached,
                 programs = programs,
                 revision = revision,
-                // Zero means this is an immediate paint snapshot, not a fresh
-                // provider result. Live still refreshes provider routes after
-                // the first frame and marks the completed session below.
                 refreshedAtMillis = 0L,
                 preparedGuide = prepared,
             )
         }
-        com.orgista.openstream.Logs.event(
-            "live full cache ready in ${android.os.SystemClock.elapsedRealtime() - startedAt}ms: " +
-                "${prepared.allChannels.size} catalog, ${prepared.activeChannels.size} visible",
-        )
         return true
-    }
-
-    fun cacheBuiltInChannels(source: IptvSource, channels: List<IptvChannel>) {
-        if (source.builtIn && channels.all { it.sourceId == source.id }) catalogCache.save(source.id, channels)
     }
 
     fun cachedGuidePrograms(sourceId: String, nowMillis: Long): List<IptvGuideProgram> =
@@ -293,20 +239,6 @@ class IptvStore(context: Context) {
         private const val KEY_MANUAL_CHANNELS = "manualChannels"
         private const val MAX_MANUAL_CHANNELS = 100
         private const val CUSTOM_ID = "custom"
-        val FREE_TV = IptvSource.m3u(
-            id = "free-tv-us",
-            name = "Free-TV USA",
-            playlistUrl = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_usa.m3u8",
-            builtIn = true,
-        )
-        val IPTV_ORG_US = IptvSource.m3u(
-            id = "iptv-org-us",
-            name = "IPTV-org USA",
-            playlistUrl = "https://iptv-org.github.io/iptv/countries/us.m3u",
-            builtIn = true,
-        )
-        private val BUILT_INS = listOf(FREE_TV, IPTV_ORG_US)
-
         fun custom(
             name: String,
             type: IptvSourceType,
@@ -315,6 +247,11 @@ class IptvStore(context: Context) {
             password: String,
         ): IptvSource = IptvSource(CUSTOM_ID, name.ifBlank { "My TV" }, type, endpoint, username, password)
     }
+}
+
+/** Live content sources exist only after a viewer configures one in Sources. */
+object IptvSourceSelection {
+    fun configured(source: IptvSource?): List<IptvSource> = listOfNotNull(source)
 }
 
 internal object IptvSessionCatalog {

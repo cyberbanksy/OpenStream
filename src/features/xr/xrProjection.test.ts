@@ -13,7 +13,7 @@ describe("XR viewer options", () => {
       dynamicRange: "runtime check",
       rejectedLegacySource: false,
     });
-    expect(options.source).toBe("https://openstream.example/demo/openstream-demo.mp4");
+    expect(options.source).toBe("");
   });
 
   it("accepts only an opaque fragment handoff and ignores legacy source parameters", () => {
@@ -24,7 +24,7 @@ describe("XR viewer options", () => {
     });
     expect(options.handoffId).toBe(handoffId);
     expect(options.rejectedLegacySource).toBe(true);
-    expect(options.source).toBe("https://openstream.example/demo/openstream-demo.mp4");
+    expect(options.source).toBe("");
     expect(options.source).not.toContain("secret");
   });
 

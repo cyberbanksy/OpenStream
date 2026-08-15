@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { publicManifestUrls, validateConfiguredAddons, validateManifest } from "./stremio-addons.mjs";
+import { validateConfiguredAddons, validateManifest } from "./stremio-addons.mjs";
 
 function response(status, body) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-test("extracts only compiled HTTPS manifest constants", () => {
-  const urls = publicManifestUrls('manifestUrl = "https://one.test/manifest.json"\nmanifestUrl = "http://bad.test/manifest.json"');
-  assert.deepEqual(urls, ["https://one.test/manifest.json"]);
+test("an empty configuration validates no add-ons", async () => {
+  assert.deepEqual(await validateConfiguredAddons({}), []);
 });
 
 test("retries a transient manifest failure and returns a sanitized capability report", async () => {
@@ -33,7 +32,6 @@ test("retries a transient manifest failure and returns a sanitized capability re
 
 test("configured failures never reveal a credential-bearing URL", async () => {
   const reports = await validateConfiguredAddons({
-    source: "",
     configuredManifestUrl: "https://addon.test/very-secret/manifest.json",
     fetchImpl: async () => response(401, {}),
     wait: async () => {},

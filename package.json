@@ -19,10 +19,7 @@
     "netflix:top10": "node scripts/netflix-top10.mjs",
     "netflix:top10:emulate": "node scripts/netflix-top10.mjs --emulate",
     "metadata:omdb": "node scripts/omdb-lookup.mjs",
-    "qa": "node scripts/qa.mjs",
-    "openpencil:smoke": "node scripts/openpencil-smoke.mjs",
-    "make": "node scripts/design-agent.mjs",
-    "make:new": "node scripts/design-agent.mjs --new"
+    "qa": "node scripts/qa.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -32,7 +29,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.185.1",

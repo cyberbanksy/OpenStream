@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import com.orgista.openstream.Logs
 import com.orgista.openstream.R
 import com.orgista.openstream.data.ConnectionStore
+import com.orgista.openstream.data.ConfiguredStremioCatalogPolicy
 import com.orgista.openstream.data.AddonCatalogSection
 import com.orgista.openstream.data.MediaCandidate
 import com.orgista.openstream.data.MediaItem
@@ -95,6 +96,7 @@ import com.orgista.openstream.streaming.BandwidthRuntime
 import com.orgista.openstream.streaming.StreamingPlan
 import com.orgista.openstream.streaming.StreamingQualityPolicy
 import com.orgista.openstream.iptv.IptvStore
+import com.orgista.openstream.iptv.LegacyEmbeddedSourceCacheCleaner
 import com.orgista.openstream.iptv.IptvPresentationPolicy
 import com.orgista.openstream.iptv.LiveChannelNavigationPolicy
 import com.orgista.openstream.arr.ArrPendingDownloadRuntime
@@ -131,7 +133,7 @@ fun playableUris(request: PlaybackRequest): List<String> =
     (listOf(request.uri) + request.fallbackUris)
         .filter { uri ->
             uri.startsWith("https://") || uri.startsWith("http://") ||
-                uri.startsWith("smb://") || uri.startsWith("rawresource://")
+                uri.startsWith("smb://")
         }
         .distinct()
         .take(12)
@@ -150,8 +152,7 @@ fun livePlaybackRequest(channel: com.orgista.openstream.iptv.IptvChannel): Playb
 private fun MediaCandidate.playbackPriority(): Int = when (sourceKind) {
     SourceKind.OFFLINE -> 0
     SourceKind.NAS -> 1
-    SourceKind.DEMO -> 2
-    SourceKind.STREMIO -> 3
+    SourceKind.STREMIO -> 2
 }
 
 fun bestPlaybackRequest(
@@ -272,14 +273,26 @@ fun OpenStreamApp(onExit: () -> Unit) {
 
     LaunchedEffect(Unit) {
         val startedAt = android.os.SystemClock.elapsedRealtime()
-        val (libraryCache, addonCache) = withContext(Dispatchers.IO) {
+        val (libraryCache, rawAddonCache) = withContext(Dispatchers.IO) {
             coroutineScope {
+                val removedLegacyCaches = async {
+                    LegacyEmbeddedSourceCacheCleaner.clean(context.applicationContext)
+                }
                 val library = async {
                     com.orgista.openstream.library.LibraryCache.load(context.applicationContext)
                 }
                 val addons = async { StremioCatalogCache.load(context.applicationContext) }
+                val removed = removedLegacyCaches.await()
+                if (removed > 0) Logs.event("removed $removed obsolete compiled-source cache files")
                 library.await() to addons.await()
             }
+        }
+        val addonCache = ConfiguredStremioCatalogPolicy.retain(
+            rawAddonCache,
+            connectionStore.stremioAddons(),
+        )
+        if (rawAddonCache != null && addonCache == null) {
+            withContext(Dispatchers.IO) { StremioCatalogCache.remove(context.applicationContext) }
         }
         if (indexed == null) indexed = libraryCache
         if (addonCatalog.isEmpty()) addonCatalog = addonCache?.items.orEmpty()
@@ -290,9 +303,8 @@ fun OpenStreamApp(onExit: () -> Unit) {
         )
     }
 
-    // Decode the small public Live cache while Discover is already on screen.
-    // Tapping Live then paints the guide immediately; provider refresh remains
-    // a background concern instead of a blank navigation transition.
+    // Prepare user-saved Channel Manager entries while Discover is already on
+    // screen; configured providers refresh after Live opens.
     LaunchedEffect(iptvRevision, deviceStatus.online) {
         if (!deviceStatus.online) return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -352,19 +364,23 @@ fun OpenStreamApp(onExit: () -> Unit) {
         indexing = false
     }
 
-    // Public discovery catalogs refresh every six hours and fall back to the
-    // last app-private cache when a provider is offline. A Sources change
-    // restarts this loop immediately.
+    // User-configured discovery catalogs refresh every six hours and fall back
+    // to their last app-private cache when a provider is offline. A Sources
+    // change restarts this loop immediately.
     LaunchedEffect(addonRevision, deviceStatus.online) {
         if (!deviceStatus.online) return@LaunchedEffect
         var firstPass = true
         while (true) {
+            val configuredAddons = connectionStore.stremioAddons()
             val cached = withContext(Dispatchers.IO) {
-                StremioCatalogCache.load(context.applicationContext)
+                ConfiguredStremioCatalogPolicy.retain(
+                    StremioCatalogCache.load(context.applicationContext),
+                    configuredAddons,
+                )
             }
             val shouldRefresh = addonRevision > 0 || !firstPass || cached?.isFresh() != true || cached?.sections.isNullOrEmpty()
             if (shouldRefresh) {
-                val activeCatalogAddons = connectionStore.stremioAddons().filter {
+                val activeCatalogAddons = configuredAddons.filter {
                     it.enabled && "catalog" in it.resources
                 }
                 val fetchedSections = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -391,6 +407,7 @@ fun OpenStreamApp(onExit: () -> Unit) {
                 } else if (activeCatalogAddons.isEmpty()) {
                     addonCatalog = emptyList()
                     addonCatalogs = emptyList()
+                    withContext(Dispatchers.IO) { StremioCatalogCache.remove(context.applicationContext) }
                 } else if (cached != null) {
                     addonCatalog = cached.items
                     addonCatalogs = cached.sections
@@ -591,8 +608,7 @@ fun OpenStreamApp(onExit: () -> Unit) {
         )
     }
 
-    // Only real libraries and configured add-ons belong in production. Demo
-    // titles made fresh installs look like a generic Northstar sample app.
+    // Only real libraries and configured add-ons belong in production.
     val library = indexed
     val onlineCatalog = remember(
         activePolicy,

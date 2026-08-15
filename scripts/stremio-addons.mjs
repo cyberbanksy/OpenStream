@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const MAX_ATTEMPTS = 4;
@@ -15,11 +14,6 @@ export function resourceNames(manifest) {
   return [...new Set((manifest.resources ?? []).map((value) =>
     typeof value === "string" ? value : value?.name,
   ).filter(Boolean))];
-}
-
-export function publicManifestUrls(source) {
-  return [...source.matchAll(/manifestUrl = "(https:\/\/[^"\s]+\/manifest\.json)"/g)]
-    .map((match) => match[1]);
 }
 
 async function jsonWithRetry(url, { fetchImpl = fetch, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
@@ -67,9 +61,8 @@ export async function validateManifest(manifestUrl, options = {}) {
   return { id: manifest.id, name: manifest.name, resources, catalogItems, directStreams };
 }
 
-export async function validateConfiguredAddons({ source, configuredManifestUrl, ...options }) {
-  const urls = publicManifestUrls(source);
-  if (configuredManifestUrl) urls.push(configuredManifestUrl);
+export async function validateConfiguredAddons({ configuredManifestUrl, ...options }) {
+  const urls = configuredManifestUrl ? [configuredManifestUrl] : [];
   const reports = [];
   for (const url of urls) {
     try {
@@ -82,10 +75,7 @@ export async function validateConfiguredAddons({ source, configuredManifestUrl, 
 }
 
 async function main() {
-  const sourcePath = fileURLToPath(new URL("../native/android-xr/app/src/main/java/com/orgista/openstream/data/BuiltInStremioAddons.kt", import.meta.url));
-  const source = readFileSync(sourcePath, "utf8");
   const reports = await validateConfiguredAddons({
-    source,
     configuredManifestUrl: process.env.OPENSTREAM_STREAM_ADDON_MANIFEST_URL,
   });
   console.log(JSON.stringify(reports, null, 2));

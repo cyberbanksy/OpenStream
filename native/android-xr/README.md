@@ -20,15 +20,14 @@ engine. This is the product on Android — no web runtime.
 - Settings surface real decoder/display probes (HDR10/HDR10+/HLG/Dolby
   Vision, HEVC/AV1 Main10) from the Media3 probe module.
 - Live TV presents a bounded pay-TV-style local/national/premium/sports/PPV
-  guide while retaining the complete playlist/provider catalog in Channel
-  manager search. A 15-minute in-memory lineup/guide session makes Back from
-  playback immediate. Provider XMLTV is primary; missing schedules can be
-  filled from the nightly national and local US feeds maintained by
-  [EPGTalk](https://github.com/acidjesuz/EPGTalk) and cached for six hours.
+  guide from the playlist or provider the user adds in Sources, while retaining
+  that provider's complete catalog in Channel Manager search. A 15-minute
+  in-memory lineup/guide session makes Back from playback immediate. Only guide
+  URLs advertised by the configured provider are fetched and cached.
 
-`NativeAppActivity` is the only production app surface. The old Northstar
-Media3/XR diagnostic is not declared, so installs and updates always enter the
-real OpenStream catalog.
+`NativeAppActivity` is the only production app surface. Installs and updates
+enter the real source-driven OpenStream catalog; no sample catalog, playlist,
+channel, server connection, or add-on is compiled into the app.
 
 ## Build and test
 

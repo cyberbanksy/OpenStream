@@ -49,13 +49,13 @@ describe("integration security boundaries", () => {
   it("validates the minimum Stremio manifest contract", () => {
     expect(
       stremioManifestSchema.parse({
-        id: "org.openstream.demo",
+        id: "org.example.viewer-addon",
         version: "1.0.0",
-        name: "Demo",
+        name: "Viewer Add-on",
         types: ["movie"],
         resources: ["stream"],
       }).name,
-    ).toBe("Demo");
+    ).toBe("Viewer Add-on");
   });
 
   it("generates a PKCE Google Drive authorization request with least-privilege scope", async () => {

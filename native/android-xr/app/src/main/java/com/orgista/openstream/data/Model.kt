@@ -1,17 +1,28 @@
 package com.orgista.openstream.data
 
-import androidx.annotation.DrawableRes
-
 enum class MediaKind { MOVIE, SERIES, VIDEO }
 
-enum class SourceKind { DEMO, NAS, STREMIO, OFFLINE }
+enum class SourceKind { NAS, STREMIO, OFFLINE }
+
+/** OpenStream is a video app; add-on catalogs for books or arbitrary data are never surfaced. */
+object StremioMediaTypePolicy {
+    private val supported = setOf("movie", "series")
+
+    fun isSupported(value: String): Boolean = value.lowercase() in supported
+
+    fun kind(value: String): MediaKind? = when (value.lowercase()) {
+        "movie" -> MediaKind.MOVIE
+        "series" -> MediaKind.SERIES
+        else -> null
+    }
+}
 
 /** One playable route for a title. */
 data class MediaCandidate(
     val id: String,
     val sourceName: String,
     val sourceKind: SourceKind,
-    /** Player URI: rawresource:// for demo, smb:// for NAS, http(s) for add-ons. */
+    /** Player URI: smb:// for NAS, http(s) for configured add-ons, or an offline download URI. */
     val uri: String,
     val formatLabel: String,
     val directPlay: Boolean = true,
@@ -38,8 +49,7 @@ data class MediaItem(
     /** MPAA/TV certification; empty means unrated (blocked in Kids Mode). */
     val rating: String,
     val runtimeMinutes: Int,
-    @param:DrawableRes val artRes: Int? = null,
-    /** Remote poster (TMDB); takes precedence over artRes when present. */
+    /** Remote poster supplied by the configured library or metadata service. */
     val posterUrl: String? = null,
     val backdropUrl: String? = null,
     /** Official YouTube trailer id selected from TMDB video metadata. */

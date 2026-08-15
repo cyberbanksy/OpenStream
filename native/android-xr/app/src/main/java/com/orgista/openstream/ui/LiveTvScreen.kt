@@ -62,7 +62,6 @@ import com.orgista.openstream.iptv.IptvGuideProgram
 import com.orgista.openstream.iptv.IptvPresentationPolicy
 import com.orgista.openstream.iptv.IptvStore
 import com.orgista.openstream.iptv.IptvSessionRefreshPolicy
-import com.orgista.openstream.iptv.IptvSupplementalGuidePolicy
 import com.orgista.openstream.iptv.LiveChannelPackagePolicy
 import com.orgista.openstream.iptv.LiveGuideSearchIndex
 import com.orgista.openstream.iptv.LivePreparedGuide
@@ -147,49 +146,13 @@ fun LiveTvScreen(
             error = null
             if (session.programs.isEmpty()) {
                 val cachedPrograms = withContext(Dispatchers.IO) {
-                    val provider = store.sources().flatMap { source ->
+                    store.sources().flatMap { source ->
                         store.cachedGuidePrograms(source.id, nowMillis)
                     }
-                    val supplemental = store.cachedGuidePrograms(
-                        IptvSupplementalGuidePolicy.SOURCE_ID,
-                        nowMillis,
-                    )
-                    LiveGuidePolicy.fillMissingSchedules(provider, supplemental)
                 }
                 if (cachedPrograms.isNotEmpty()) {
                     guidePrograms = cachedPrograms
                     store.updateSessionGuidePrograms(cachedPrograms)
-                } else {
-                    val lineup = withContext(Dispatchers.Default) {
-                        LiveChannelPackagePolicy.lineupChannels(
-                            channels = session.channels,
-                            enabledPackageIds = store.enabledPackageIds(),
-                            favoriteChannelKeys = store.favoriteChannelKeys(),
-                        )
-                    }
-                    guideLoading = lineup.isNotEmpty()
-                    if (guideLoading) {
-                        val guideStart = LiveGuidePolicy.windowStart(nowMillis, -4)
-                        val guideEnd = LiveGuidePolicy.windowStart(nowMillis, 96) + LiveGuidePolicy.WINDOW_MILLIS
-                        val supplemental = withContext(Dispatchers.IO) {
-                            store.markGuideRefreshAttempt(IptvSupplementalGuidePolicy.SOURCE_ID)
-                            runCatching {
-                                IptvGuideClient.load(
-                                    IptvSupplementalGuidePolicy.catalog(lineup),
-                                    guideStart,
-                                    guideEnd,
-                                )
-                            }.getOrDefault(emptyList())
-                        }
-                        if (supplemental.isNotEmpty()) {
-                            withContext(Dispatchers.IO) {
-                                store.cacheGuidePrograms(IptvSupplementalGuidePolicy.SOURCE_ID, supplemental)
-                            }
-                            guidePrograms = supplemental
-                            store.updateSessionGuidePrograms(supplemental)
-                        }
-                        guideLoading = false
-                    }
                 }
             }
             return@LaunchedEffect
@@ -200,22 +163,10 @@ fun LiveTvScreen(
         val sources = store.sources()
         val packagesForGuide = store.enabledPackageIds()
         val favoritesForGuide = store.favoriteChannelKeys()
-        val cached = withContext(Dispatchers.IO) { store.cachedBuiltInChannels() }
-        if (cached.isNotEmpty()) {
-            channels = IptvCatalogPolicy.initialChannels(cached)
-            loading = false
-        }
-
         val cachedGuideBySource = withContext(Dispatchers.IO) {
             sources.associate { source -> source.id to store.cachedGuidePrograms(source.id, nowMillis) }
         }
-        val cachedSupplementalGuide = withContext(Dispatchers.IO) {
-            store.cachedGuidePrograms(IptvSupplementalGuidePolicy.SOURCE_ID, nowMillis)
-        }
-        val quickCachedGuide = LiveGuidePolicy.fillMissingSchedules(
-            cachedGuideBySource.values.flatten(),
-            cachedSupplementalGuide,
-        )
+        val quickCachedGuide = cachedGuideBySource.values.flatten()
         if (quickCachedGuide.isNotEmpty()) {
             guidePrograms = quickCachedGuide
             store.updateSessionGuidePrograms(quickCachedGuide)
@@ -226,17 +177,9 @@ fun LiveTvScreen(
                 sources.map { source -> async { source to runCatching { IptvClient.loadCatalog(source) } } }.awaitAll()
             }
         }
-        val builtInChannels = results.filter { it.first.builtIn }.flatMap { (source, result) ->
-            val fresh = result.getOrNull()?.channels.orEmpty()
-            if (fresh.isNotEmpty()) withContext(Dispatchers.IO) { store.cacheBuiltInChannels(source, fresh) }
-            IptvCatalogPolicy.afterRefresh(
-                cached = cached.filter { it.sourceId == source.id },
-                fresh = fresh,
-            )
-        }
-        val customChannels = results.filterNot { it.first.builtIn }.flatMap { it.second.getOrNull()?.channels.orEmpty() }
+        val configuredChannels = results.flatMap { it.second.getOrNull()?.channels.orEmpty() }
         val mergedChannels = withContext(Dispatchers.Default) {
-            IptvCatalogPolicy.mergeForPlayback((builtInChannels + customChannels).distinctBy(IptvChannel::streamUrl))
+            IptvCatalogPolicy.mergeForPlayback(configuredChannels.distinctBy(IptvChannel::streamUrl))
         }
         channels = mergedChannels
         store.updateSessionChannels(mergedChannels + manualChannels)
@@ -277,29 +220,20 @@ fun LiveTvScreen(
             programs.filter { it.channelKey in activeGuideKeys }
         }
         val cachedProviderGuide = cachedGuideByActiveSource.values.flatten()
-        val cachedSupplementalForLineup = cachedSupplementalGuide.filter { it.channelKey in activeGuideKeys }
-        guidePrograms = LiveGuidePolicy.fillMissingSchedules(cachedProviderGuide, cachedSupplementalForLineup)
+        guidePrograms = cachedProviderGuide
         val catalogsToRefresh = withContext(Dispatchers.IO) {
             catalogs.filterNot { catalog ->
                 val cachedPrograms = cachedGuideByActiveSource[catalog.source.id].orEmpty()
                 store.isGuideCacheFresh(catalog.source.id, nowMillis, cachedPrograms.isNotEmpty())
             }
         }
-        val refreshSupplemental = withContext(Dispatchers.IO) {
-            !store.isGuideCacheFresh(
-                IptvSupplementalGuidePolicy.SOURCE_ID,
-                nowMillis,
-                cachedSupplementalForLineup.isNotEmpty(),
-            )
-        }
-        guideLoading = catalogsToRefresh.isNotEmpty() || refreshSupplemental
+        guideLoading = catalogsToRefresh.isNotEmpty()
         if (guideLoading) {
             val guideStart = LiveGuidePolicy.windowStart(nowMillis, -4)
             val guideEnd = LiveGuidePolicy.windowStart(nowMillis, 96) + LiveGuidePolicy.WINDOW_MILLIS
-            val (freshProviderPrograms, freshSupplementalPrograms) = withContext(Dispatchers.IO) {
+            val freshProviderPrograms = withContext(Dispatchers.IO) {
                 coroutineScope {
-                    val provider = async {
-                        catalogsToRefresh.map { catalog -> async {
+                    catalogsToRefresh.map { catalog -> async {
                             store.markGuideRefreshAttempt(catalog.source.id)
                             val programs = runCatching {
                                 IptvGuideClient.load(catalog, guideStart, guideEnd)
@@ -309,33 +243,10 @@ fun LiveTvScreen(
                             }
                             programs
                         } }.awaitAll().flatten()
-                    }
-                    val supplemental = async {
-                        if (!refreshSupplemental || lineupForGuide.isEmpty()) {
-                            emptyList()
-                        } else {
-                            store.markGuideRefreshAttempt(IptvSupplementalGuidePolicy.SOURCE_ID)
-                            val programs = runCatching {
-                                IptvGuideClient.load(
-                                    IptvSupplementalGuidePolicy.catalog(lineupForGuide),
-                                    guideStart,
-                                    guideEnd,
-                                )
-                            }.getOrDefault(emptyList())
-                            if (programs.isNotEmpty()) {
-                                store.cacheGuidePrograms(IptvSupplementalGuidePolicy.SOURCE_ID, programs)
-                            }
-                            programs
-                        }
-                    }
-                    provider.await() to supplemental.await()
                 }
             }
-            val providerGuide = (freshProviderPrograms + cachedProviderGuide)
+            guidePrograms = (freshProviderPrograms + cachedProviderGuide)
                 .distinctBy { "${it.channelKey}:${it.startMillis}:${it.title}" }
-            val supplementalGuide = (freshSupplementalPrograms + cachedSupplementalForLineup)
-                .distinctBy { "${it.channelKey}:${it.startMillis}:${it.title}" }
-            guidePrograms = LiveGuidePolicy.fillMissingSchedules(providerGuide, supplementalGuide)
             guideLoading = false
         }
         store.updateSessionGuidePrograms(guidePrograms)

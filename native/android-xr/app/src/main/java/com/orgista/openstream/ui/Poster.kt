@@ -1,6 +1,5 @@
 package com.orgista.openstream.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,10 +26,8 @@ private fun tintFor(seed: String): Color {
 }
 
 /**
- * Renders a title's artwork: a remote TMDB poster/backdrop when available, a
- * bundled demo image next, and a clean typographic card as the last resort —
- * so a freshly scanned library still reads as a wall of art before metadata
- * arrives.
+ * Renders artwork supplied by a configured source, with a clean typographic
+ * fallback while source metadata is unavailable.
  */
 @Composable
 fun Poster(
@@ -45,12 +41,6 @@ fun Poster(
     when {
         remote != null -> AsyncImage(
             model = remote,
-            contentDescription = contentDescription,
-            modifier = modifier,
-            contentScale = contentScale,
-        )
-        item.artRes != null -> Image(
-            painter = painterResource(item.artRes),
             contentDescription = contentDescription,
             modifier = modifier,
             contentScale = contentScale,

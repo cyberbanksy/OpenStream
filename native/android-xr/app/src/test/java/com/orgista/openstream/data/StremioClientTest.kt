@@ -36,6 +36,33 @@ class StremioClientTest {
     }
 
     @Test
+    fun `book and other non video catalogs never enter discovery`() {
+        val addon = StremioClient.parseManifest(
+            "https://addon.example/manifest.json",
+            """{
+              "id":"mixed.catalog",
+              "name":"Mixed Catalog",
+              "resources":["catalog"],
+              "catalogs":[
+                {"type":"book","id":"books","name":"Books"},
+                {"type":"other","id":"other","name":"Other"},
+                {"type":"movie","id":"movies","name":"Movies"},
+                {"type":"series","id":"shows","name":"Shows"}
+              ]
+            }""".trimIndent(),
+        )
+
+        assertEquals(listOf("movie:movies", "series:shows"), addon.catalogs.map { "${it.type}:${it.id}" })
+        assertEquals(
+            emptyList<MediaItem>(),
+            StremioClient.parseCatalog(
+                addon,
+                """{"metas":[{"id":"book-1","type":"book","name":"A Book"}]}""",
+            ),
+        )
+    }
+
+    @Test
     fun `search selects only declared searchable catalogs`() {
         val addon = StremioClient.parseManifest("https://addon.example/manifest.json", manifest)
 

@@ -6,50 +6,10 @@
   <script type="text/brightscript" uri="pkg:/components/OpenStreamScene.brs" />
 
   <children>
-    <Rectangle id="background" width="1920" height="1080" color="0x070909ff" />
-    <Poster id="wash" uri="pkg:/images/splash_screen_fhd.png" width="1920" height="1080" opacity="0.16" loadDisplayMode="scaleToFill" />
-
-    <Group id="browse">
-      <Label translation="[86,54]" text="OpenStream" width="310" height="56" font="font:LargeBoldSystemFont" color="0xf5f8f8ff" />
-      <Label translation="[445,67]" text="Discover" width="160" height="42" font="font:MediumBoldSystemFont" color="0xffffffff" />
-      <Label translation="[620,67]" text="Library" width="140" height="42" font="font:MediumSystemFont" color="0xaeb9baff" />
-      <Label id="network" translation="[1570,70]" text="ONLINE" width="180" height="34" horizAlign="right" font="font:SmallBoldSystemFont" color="0x62e4b2ff" />
-
-      <Label translation="[88,255]" text="FEATURED" width="300" height="36" font="font:SmallBoldSystemFont" color="0x62e4b2ff" />
-      <Label translation="[82,304]" text="Northstar" width="1050" height="112" font="font:LargeBoldSystemFont" color="0xffffffff" />
-      <Label translation="[88,423]" text="2026  •  2h 14m  •  4K" width="820" height="48" font="font:MediumBoldSystemFont" color="0xc8d1d2ff" />
-      <Label translation="[88,484]" text="A signal from the edge of the solar system draws a salvage crew into an impossible orbit." width="920" height="84" wrap="true" numLines="2" font="font:MediumSystemFont" color="0xd1d8d9ff" />
-
-      <Rectangle id="playButton" translation="[88,600]" width="230" height="68" cornerRadius="10" color="0xeff5f4ff">
-        <Label translation="[0,13]" text="▶  Play" width="230" height="45" horizAlign="center" font="font:MediumBoldSystemFont" color="0x07100dff" />
-      </Rectangle>
-      <Rectangle id="detailsButton" translation="[340,600]" width="230" height="68" cornerRadius="10" color="0x1a2021ff">
-        <Label translation="[0,13]" text="Details" width="230" height="45" horizAlign="center" font="font:MediumBoldSystemFont" color="0xf5f8f8ff" />
-      </Rectangle>
-
-      <Label translation="[88,748]" text="Recommended for you" width="520" height="48" font="font:MediumBoldSystemFont" color="0xf5f8f8ff" />
-      <Group id="cardRow" translation="[88,818]">
-        <Rectangle id="card0" width="310" height="166" cornerRadius="10" color="0x193234ff"><Label translation="[20,104]" text="Northstar&#xA;4K • Available offline" width="270" height="58" wrap="true" numLines="2" font="font:SmallBoldSystemFont" color="0xffffffff" /></Rectangle>
-        <Rectangle id="card1" translation="[334,0]" width="310" height="166" cornerRadius="10" color="0x172a35ff"><Label translation="[20,104]" text="The Last Signal&#xA;4K HDR10" width="270" height="58" wrap="true" numLines="2" font="font:SmallBoldSystemFont" color="0xffffffff" /></Rectangle>
-        <Rectangle id="card2" translation="[668,0]" width="310" height="166" cornerRadius="10" color="0x21304aff"><Label translation="[20,104]" text="Solar Drift&#xA;Dolby Vision • Atmos" width="270" height="58" wrap="true" numLines="2" font="font:SmallBoldSystemFont" color="0xffffffff" /></Rectangle>
-        <Rectangle id="card3" translation="[1002,0]" width="310" height="166" cornerRadius="10" color="0x233731ff"><Label translation="[20,104]" text="Echoes of Mars&#xA;4K" width="270" height="58" wrap="true" numLines="2" font="font:SmallBoldSystemFont" color="0xffffffff" /></Rectangle>
-        <Rectangle id="card4" translation="[1336,0]" width="310" height="166" cornerRadius="10" color="0x302943ff"><Label translation="[20,104]" text="Silent Tides&#xA;HLG HDR" width="270" height="58" wrap="true" numLines="2" font="font:SmallBoldSystemFont" color="0xffffffff" /></Rectangle>
-      </Group>
-      <Rectangle id="focusRing" translation="[78,590]" width="250" height="88" cornerRadius="13" color="0x73e8bd44" />
-    </Group>
-
-    <Group id="detailsPanel" visible="false">
-      <Rectangle width="1920" height="1080" color="0x000000bb" />
-      <Rectangle translation="[495,255]" width="930" height="570" cornerRadius="18" color="0x121718ff" />
-      <Label translation="[565,332]" text="Northstar" width="790" height="74" font="font:LargeBoldSystemFont" color="0xffffffff" />
-      <Label translation="[565,427]" text="Direct playback with system audio and caption controls, saved resume position, add-on streams, and device HDR signaling." width="790" height="170" wrap="true" numLines="4" font="font:MediumSystemFont" color="0xc4cdceff" />
-      <Rectangle translation="[565,665]" width="210" height="66" cornerRadius="10" color="0xeff5f4ff"><Label translation="[0,13]" text="Done" width="210" height="42" horizAlign="center" font="font:MediumBoldSystemFont" color="0x07100dff" /></Rectangle>
-    </Group>
-
-    <Video id="video" width="1920" height="1080" visible="false" enableUI="true" mute="false" />
-    <Rectangle id="formatPill" translation="[1440,52]" width="390" height="58" cornerRadius="9" color="0x000000c8" visible="false">
-      <Label id="formatLabel" translation="[18,11]" text="HDR10  •  DOLBY ATMOS" width="354" height="36" horizAlign="center" font="font:SmallBoldSystemFont" color="0xffffffff" />
-    </Rectangle>
-    <Timer id="formatTimer" duration="3.5" repeat="false" />
+    <Rectangle width="1920" height="1080" color="0x070909ff" />
+    <Label translation="[86,54]" text="OpenStream" width="420" height="58" font="font:LargeBoldSystemFont" color="0xf5f8f8ff" />
+    <Label id="network" translation="[1570,70]" text="ONLINE" width="180" height="34" horizAlign="right" font="font:SmallBoldSystemFont" color="0x62e4b2ff" />
+    <Label translation="[540,350]" text="Nothing to show yet" width="840" height="86" horizAlign="center" font="font:LargeBoldSystemFont" color="0xffffffff" />
+    <Label translation="[490,465]" text="Add libraries, add-ons, YouTube channels, and Live TV from OpenStream Sources or Web Management." width="940" height="150" horizAlign="center" wrap="true" numLines="3" font="font:MediumSystemFont" color="0xc4cdceff" />
   </children>
 </component>

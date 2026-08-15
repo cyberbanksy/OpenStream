@@ -22,7 +22,6 @@ data class StremioAddon(
     val manifestId: String = id,
     val resources: Set<String> = setOf("stream"),
     val catalogs: List<StremioCatalog> = emptyList(),
-    val builtIn: Boolean = false,
     val enabled: Boolean = true,
 )
 
@@ -53,11 +52,7 @@ object StremioAddonPresentation {
 }
 
 object StremioAddonRemovalPolicy {
-    fun visible(
-        builtIns: List<StremioAddon>,
-        custom: List<StremioAddon>,
-        removedBuiltInIds: Set<String>,
-    ): List<StremioAddon> = (builtIns.filterNot { it.id in removedBuiltInIds } + custom)
+    fun visible(configured: List<StremioAddon>): List<StremioAddon> = configured
         .distinctBy { it.manifestId to it.transportUrl }
 }
 
@@ -137,7 +132,9 @@ class ConnectionStore(context: Context) {
                         val catalog = values.optJSONObject(catalogIndex) ?: return@mapNotNull null
                         val type = catalog.optString("type")
                         val id = catalog.optString("id")
-                        if (type.isBlank() || id.isBlank()) return@mapNotNull null
+                        if (type.isBlank() || id.isBlank() || !StremioMediaTypePolicy.isSupported(type)) {
+                            return@mapNotNull null
+                        }
                         StremioCatalog(
                             type = type,
                             id = id,
@@ -161,14 +158,13 @@ class ConnectionStore(context: Context) {
             emptyList()
         }
         val disabled = prefs.getStringSet(KEY_STREMIO_DISABLED, emptySet()).orEmpty()
-        val removedBuiltIns = prefs.getStringSet(KEY_STREMIO_REMOVED_BUILT_INS, emptySet()).orEmpty()
-        return StremioAddonRemovalPolicy.visible(BuiltInStremioAddons.all, custom, removedBuiltIns)
+        return StremioAddonRemovalPolicy.visible(custom)
             .map { addon -> addon.copy(enabled = addon.id !in disabled) }
     }
 
     fun addStremio(addon: StremioAddon) {
         val array = JSONArray()
-        (stremioAddons().filter { !it.builtIn && it.manifestId != addon.manifestId } + addon).forEach { entry ->
+        (stremioAddons().filter { it.manifestId != addon.manifestId } + addon).forEach { entry ->
             array.put(
                 JSONObject()
                     .put("id", entry.id)
@@ -198,19 +194,8 @@ class ConnectionStore(context: Context) {
     }
 
     fun removeStremio(id: String) {
-        if (BuiltInStremioAddons.all.any { it.id == id }) {
-            val removed = prefs.getStringSet(KEY_STREMIO_REMOVED_BUILT_INS, emptySet()).orEmpty().toMutableSet()
-            removed += id
-            val disabled = prefs.getStringSet(KEY_STREMIO_DISABLED, emptySet()).orEmpty().toMutableSet()
-            disabled -= id
-            prefs.edit()
-                .putStringSet(KEY_STREMIO_REMOVED_BUILT_INS, removed)
-                .putStringSet(KEY_STREMIO_DISABLED, disabled)
-                .apply()
-            return
-        }
         val array = JSONArray()
-        stremioAddons().filter { !it.builtIn && it.id != id }.forEach { entry ->
+        stremioAddons().filter { it.id != id }.forEach { entry ->
             array.put(
                 JSONObject()
                     .put("id", entry.id)
@@ -279,7 +264,6 @@ class ConnectionStore(context: Context) {
         const val KEY_NAS = "nas.v1"
         const val KEY_STREMIO = "stremio.v1"
         const val KEY_STREMIO_DISABLED = "stremio.disabled.v1"
-        const val KEY_STREMIO_REMOVED_BUILT_INS = "stremio.removed-builtins.v1"
         const val KEY_YOUTUBE_CHANNELS = "youtube.channels.v1"
         const val KEY_DISCOVER_FEED = "discover.feed.v1"
     }

@@ -67,8 +67,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
 import com.orgista.openstream.Logs
-import com.orgista.openstream.R
-import com.orgista.openstream.data.DEMO_URI
 import com.orgista.openstream.data.StremioAddon
 import com.orgista.openstream.data.StremioClient
 import com.orgista.openstream.media.DolbyVisionCodecString
@@ -124,7 +122,7 @@ private fun Throwable.httpResponseCode(): Int? {
 
 /**
  * Native Media3 playback. SMB URIs stream through the jcifs-ng DataSource,
- * HTTP(S) and the bundled demo use the default sources. Only this screen is
+ * HTTP(S) routes use the default sources. Only this screen is
  * immersive; system bars come back the moment playback closes so the app
  * never traps the viewer.
  */
@@ -171,13 +169,9 @@ fun PlayerScreen(
         } ?: 0L
     }
 
-    fun playerUri(uri: String): android.net.Uri =
-        if (uri == DEMO_URI) android.net.Uri.parse("rawresource:///${R.raw.openstream_demo}")
-        else android.net.Uri.parse(uri)
+    fun playerUri(uri: String): android.net.Uri = android.net.Uri.parse(uri)
 
-    val mediaUri = remember(playbackRoutes) {
-        playerUri(playbackRoutes.first())
-    }
+    val mediaUri = remember(playbackRoutes) { playerUri(playbackRoutes.first()) }
     val initialMediaItem = remember(request, mediaUri) {
         request.offlineDownloadId?.let(offlineRuntime::downloadMediaItem)
             ?: Media3Item.Builder()

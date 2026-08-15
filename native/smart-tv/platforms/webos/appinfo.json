@@ -1,23 +1,24 @@
 {
-  "id": "com.cyberbanksy.openstream.webos",
+  "id": "com.cyberbanksy.app.openstream",
   "title": "OpenStream",
   "main": "index.html",
-  "icon": "icon.png",
-  "largeIcon": "largeicon.png",
+  "icon": "icon-80.png",
+  "largeIcon": "icon-130.png",
   "type": "web",
   "vendor": "Cyberbanksy",
-  "version": "0.1.0",
-  "appDescription": "Native television streaming from your sources.",
+  "version": "1.0.0",
+  "appDescription": "Stream your own media sources on LG webOS TV.",
   "resolution": "1920x1080",
   "bgColor": "#070909",
   "iconColor": "#070909",
+  "bgImage": "splash-1920x1080.png",
+  "splashBackground": "splash-1920x1080.png",
   "requiredMemory": 64,
   "supportTouchMode": "none",
-  "disableBackHistoryAPI": true,
+  "disableBackHistoryAPI": false,
+  "handlesRelaunch": false,
+  "transparent": false,
   "accessibility": {
     "supportsAudioGuidance": true
-  },
-  "screenSaverProperties": {
-    "preferredType": 3
   }
 }

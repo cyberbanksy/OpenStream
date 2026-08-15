@@ -28,7 +28,7 @@ import type { PlaybackSession, ToastMessage, ViewId } from "./types";
 type AppContextValue = {
   view: ViewId;
   previousView: ViewId;
-  selectedItem: MediaItem;
+  selectedItem?: MediaItem;
   catalog: MediaItem[];
   policy?: ContentPolicy;
   kidsMode: boolean;
@@ -82,7 +82,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [policy, setPolicy] = useState<ContentPolicy | undefined>(() => loadActivePolicy());
   const [view, setView] = useState<ViewId>(initial.view);
   const [previousView, setPreviousView] = useState<ViewId>("discover");
-  const [selectedItem, setSelectedItem] = useState<MediaItem>(initial.item);
+  const [selectedItem, setSelectedItem] = useState<MediaItem | undefined>(initial.item);
   const [capabilities, setCapabilities] = useState<PlaybackCapabilities>(
     platformCapabilityHints[inferPlatform()],
   );
@@ -133,6 +133,10 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, [notify, policy, updateUrl]);
 
   const beginPlayback = useCallback((item = selectedItem) => {
+    if (!item) {
+      notify({ tone: "neutral", title: "Nothing selected", detail: "Add a source, then choose a title to play." });
+      return;
+    }
     if (!isItemAllowed(item, policy ?? standardPolicy)) {
       notify({ tone: "warning", title: "Not available in Kids Mode", detail: `${item.title} is outside this device's allowed ratings.` });
       return;
@@ -235,7 +239,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!kidsMode) return;
     if (kidsHiddenViews.includes(view)) setView("discover");
-    if (!isItemAllowed(selectedItem, policy ?? standardPolicy)) {
+    if (selectedItem && !isItemAllowed(selectedItem, policy ?? standardPolicy)) {
       const fallback = visibleCatalog[0];
       if (fallback) setSelectedItem(fallback);
       setPlayback((current) => current && !isItemAllowed(current.item, policy ?? standardPolicy) ? undefined : current);
@@ -251,12 +255,12 @@ export function AppProvider({ children }: PropsWithChildren) {
       connections: "Connections",
       activity: "Activity",
       settings: "Playback capabilities",
-      details: selectedItem.title,
-      player: `Playing ${selectedItem.title}`,
+      details: selectedItem?.title ?? "Details",
+      player: selectedItem ? `Playing ${selectedItem.title}` : "Player",
       search: "Search",
     };
     document.title = `${labels[view]} · OpenStream`;
-  }, [selectedItem.title, view]);
+  }, [selectedItem, view]);
 
   useEffect(() => {
     if (!toast) return;

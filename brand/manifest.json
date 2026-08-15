@@ -1,10 +1,8 @@
 {
-  "name": "OpenStream X-to-Cube",
-  "version": 1,
-  "source": "openstream-x-cube.svg",
-  "preview": "preview.html",
-  "canvas": "512x512 transparent",
-  "loopDurationSeconds": 3,
-  "reducedMotionFallback": "static X",
+  "name": "OpenStream three-bar identity",
+  "version": 2,
+  "mark": "openstream-mark.svg",
+  "appIcon": "openstream-app-icon.svg",
+  "canvas": "96x96 transparent mark; 400x400 black app icon",
   "provenance": "Original vector artwork authored for OpenStream in this repository; no external assets or fonts."
 }

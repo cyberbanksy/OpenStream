@@ -13,10 +13,7 @@ let package = Package(
         .library(name: "OpenStreamApple", targets: ["OpenStreamApple"]),
     ],
     targets: [
-        .target(
-            name: "OpenStreamApple",
-            resources: [.process("Resources")]
-        ),
+        .target(name: "OpenStreamApple"),
         .testTarget(name: "OpenStreamAppleTests", dependencies: ["OpenStreamApple"]),
     ]
 )

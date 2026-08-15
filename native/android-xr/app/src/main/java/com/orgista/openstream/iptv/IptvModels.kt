@@ -9,14 +9,13 @@ class IptvSource(
     val endpoint: String,
     val username: String = "",
     val password: String = "",
-    val builtIn: Boolean = false,
 ) {
     override fun toString(): String =
-        "IptvSource(id=$id,name=$name,type=$type,endpoint=$endpoint,username=<redacted>,password=<redacted>,builtIn=$builtIn)"
+        "IptvSource(id=$id,name=$name,type=$type,endpoint=$endpoint,username=<redacted>,password=<redacted>)"
 
     companion object {
-        fun m3u(id: String, name: String, playlistUrl: String, builtIn: Boolean = false): IptvSource =
-            IptvSource(id, name, IptvSourceType.M3U, playlistUrl, builtIn = builtIn)
+        fun m3u(id: String, name: String, playlistUrl: String): IptvSource =
+            IptvSource(id, name, IptvSourceType.M3U, playlistUrl)
 
         fun xtream(
             id: String,

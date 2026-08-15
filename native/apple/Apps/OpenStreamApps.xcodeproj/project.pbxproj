@@ -9,9 +9,6 @@
 		D00000000000000000000001 /* OpenStreamApps.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000001 /* OpenStreamApps.swift */; };
 		D00000000000000000000002 /* OpenStreamApps.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000001 /* OpenStreamApps.swift */; };
 		D00000000000000000000003 /* OpenStreamApps.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000001 /* OpenStreamApps.swift */; };
-		D00000000000000000000004 /* openstream_demo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000002 /* openstream_demo.mp4 */; };
-		D00000000000000000000005 /* openstream_demo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000002 /* openstream_demo.mp4 */; };
-		D00000000000000000000006 /* openstream_demo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000002 /* openstream_demo.mp4 */; };
 		D00000000000000000000007 /* OpenStreamApple in Frameworks */ = {isa = PBXBuildFile; productRef = K00000000000000000000001 /* OpenStreamApple */; };
 		D00000000000000000000008 /* OpenStreamApple in Frameworks */ = {isa = PBXBuildFile; productRef = K00000000000000000000002 /* OpenStreamApple */; };
 		D00000000000000000000009 /* OpenStreamApple in Frameworks */ = {isa = PBXBuildFile; productRef = K00000000000000000000003 /* OpenStreamApple */; };
@@ -19,7 +16,6 @@
 
 /* Begin PBXFileReference section */
 		C00000000000000000000001 /* OpenStreamApps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenStreamApps.swift; sourceTree = "<group>"; };
-		C00000000000000000000002 /* openstream_demo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; name = openstream_demo.mp4; path = ../../android-xr/app/src/main/res/raw/openstream_demo.mp4; sourceTree = "<group>"; };
 		C00000000000000000000003 /* OpenStream iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenStream iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C00000000000000000000004 /* OpenStream tvOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenStream tvOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C00000000000000000000005 /* OpenStream visionOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenStream visionOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -34,7 +30,7 @@
 /* Begin PBXGroup section */
 		B00000000000000000000001 = {isa = PBXGroup; children = (B00000000000000000000002 /* Shared */, B00000000000000000000003 /* Resources */, B00000000000000000000004 /* Products */,); sourceTree = "<group>"; };
 		B00000000000000000000002 /* Shared */ = {isa = PBXGroup; children = (C00000000000000000000001 /* OpenStreamApps.swift */,); path = Shared; sourceTree = "<group>"; };
-		B00000000000000000000003 /* Resources */ = {isa = PBXGroup; children = (C00000000000000000000002 /* openstream_demo.mp4 */,); name = Resources; sourceTree = "<group>"; };
+		B00000000000000000000003 /* Resources */ = {isa = PBXGroup; children = (); name = Resources; sourceTree = "<group>"; };
 		B00000000000000000000004 /* Products */ = {isa = PBXGroup; children = (C00000000000000000000003 /* OpenStream iOS.app */, C00000000000000000000004 /* OpenStream tvOS.app */, C00000000000000000000005 /* OpenStream visionOS.app */,); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -49,9 +45,9 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E00000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D00000000000000000000004 /* openstream_demo.mp4 in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
-		E00000000000000000000006 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D00000000000000000000005 /* openstream_demo.mp4 in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
-		E00000000000000000000009 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D00000000000000000000006 /* openstream_demo.mp4 in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
+		E00000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E00000000000000000000006 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E00000000000000000000009 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */

@@ -2,8 +2,6 @@ import { ArrowLeft, CheckCircle2, CircleHelp, Cpu, Expand, Glasses, Pause, Play,
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../app/AppContext";
 import { logClient } from "../../app/log";
-import northstarHero from "../../assets/northstar-hero.png";
-import signalHero from "../../assets/last-signal-hero.png";
 import { FormatBadges } from "../../components/FormatBadge";
 import { dynamicRangeLabel } from "../../domain/media";
 import { createTranscodeSession, createXrViewerHandoff } from "../../integrations/gateway";
@@ -29,10 +27,8 @@ export function PlayerScreen() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const selected = useMemo(() => playback?.routes.find((route) => route.candidate.id === playback.selectedRouteId), [playback]);
-  const poster = playback?.item.heroAsset === "signal" ? signalHero : playback?.item.heroAsset === "northstar" ? northstarHero : undefined;
-
   const gatewayRoute = selected?.candidate.uri.startsWith("/gateway/") ?? false;
-  const directSrc = gatewayRoute ? selected!.candidate.uri : "/demo/openstream-demo.mp4";
+  const directSrc = selected?.candidate.uri ?? "";
   const activeSrc = transcodeUrl ?? directSrc;
   const canTranscode = gatewayRoute && transcoder?.available === true;
 
@@ -121,7 +117,7 @@ export function PlayerScreen() {
     setOpeningImmersive(true);
     try {
       const viewerUrl = await createXrViewerHandoff({
-        source: videoRef.current?.currentSrc || "/demo/openstream-demo.mp4",
+        source: videoRef.current?.currentSrc || activeSrc,
         projection,
         stereo,
         dynamicRange: dynamicRangeLabel[selected.candidate.format.dynamicRange],
@@ -144,14 +140,13 @@ export function PlayerScreen() {
       <video
         ref={videoRef}
         className="player-video"
-        poster={poster}
         preload="metadata"
         onEnded={() => setPlaying(false)}
         onError={handleVideoError}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onDurationChange={(event) => setDuration(event.currentTarget.duration)}
       >
-        <source src={activeSrc} type={transcodeUrl ? "video/mp4" : undefined} />
+        {activeSrc ? <source src={activeSrc} type={transcodeUrl ? "video/mp4" : undefined} /> : null}
       </video>
       <div className="player-scrim" />
       <header className="player-header"><button className="back-button" data-focusable onClick={goBack}><ArrowLeft size={21} />Back</button><span><strong>{playback.item.title}</strong><small>{selected?.candidate.sourceName ?? "Choose a route"}{transcodeUrl ? " · Local transcode" : ""}</small></span><FormatBadges format={(selected ?? playback.routes[0]).candidate.format} detailed /></header>

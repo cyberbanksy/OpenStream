@@ -22,6 +22,18 @@ elif [ "$command_name" = "get-state" ]; then
   printf 'device\n'
 elif [ "$command_name" = "exec-out" ]; then
   state=$(cat "$state_file")
+  case "$state" in
+    launch:*)
+      remaining=\${state#launch:}
+      if [ "$remaining" -gt 0 ]; then
+        printf 'launch:%s\n' "$((remaining - 1))" > "$state_file"
+        printf '<hierarchy><node package="com.orgista.openstream"><node text="OpenStream" bounds="[0,0][50,50]" /></node></hierarchy>\n'
+        exit 0
+      fi
+      printf 'sources\n' > "$state_file"
+      state=sources
+      ;;
+  esac
   body='<node text="Sources" bounds="[0,100][200,200]" />'
   if [ "$state" = "discover" ]; then
     body='<node text="Play" bounds="[0,100][100,200]" /><node text="Details" bounds="[100,100][200,200]" />'
@@ -92,7 +104,7 @@ async function runSmoke(overrides = {}) {
   const eventsPath = join(directory, "events");
   await Promise.all([
     writeFile(adbPath, mockAdb, { mode: 0o700 }),
-    writeFile(statePath, "sources\n"),
+    writeFile(statePath, overrides.MOCK_ADB_INITIAL_STATE || "sources\n"),
     writeFile(eventsPath, ""),
   ]);
   const { ANDROID_SERIAL: _ignored, ...baseEnvironment } = process.env;
@@ -118,6 +130,12 @@ test("attached-device smoke validates launch, navigation, and sleep restoration"
   assert.match(result.stdout, /Android device smoke passed: model=Mock Tablet/);
   assert.match(result.stdout, /navigation=1 lockTask=LOCKED/);
   assert.equal(result.events, "wake\nsleep\n");
+});
+
+test("attached-device smoke waits for the native launch sequence", async () => {
+  const result = await runSmoke({ MOCK_ADB_INITIAL_STATE: "launch:2\n" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Android device smoke passed/);
 });
 
 test("attached-device smoke fails closed on a process crash", async () => {

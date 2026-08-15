@@ -483,7 +483,7 @@ private fun EmptyCatalog(offlineMode: Boolean) {
             if (offlineMode) {
                 "Reconnect, open a title, and choose Make available offline. Completed downloads appear here automatically."
             } else {
-                "No titles match this device's content settings. Add age-appropriate media to a connected library."
+                "Add a library, add-on, or YouTube channel in Sources to fill Discover."
             },
             modifier = Modifier.padding(top = 10.dp),
             color = OpenStreamColors.TextSoft,

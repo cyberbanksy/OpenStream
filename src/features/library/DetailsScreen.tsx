@@ -1,8 +1,6 @@
 import { CheckCircle2, Download, Play, ShieldCheck, Subtitles, Volume2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useApp } from "../../app/AppContext";
-import signalHero from "../../assets/last-signal-hero.png";
-import northstarHero from "../../assets/northstar-hero.png";
 import { FormatBadges } from "../../components/FormatBadge";
 import { MediaRail } from "../../components/MediaRail";
 import { rankCandidates } from "../../domain/capabilities";
@@ -11,14 +9,17 @@ import { ArrRequestDialog } from "./ArrRequestDialog";
 export function DetailsScreen() {
   const { selectedItem: item, catalog, capabilities, beginPlayback, kidsMode } = useApp();
   const [requestOpen, setRequestOpen] = useState(false);
-  const routes = useMemo(() => rankCandidates(item.candidates, capabilities), [capabilities, item.candidates]);
+  const routes = useMemo(() => rankCandidates(item?.candidates ?? [], capabilities), [capabilities, item]);
   const best = routes[0];
-  const hero = item.heroAsset === "signal" ? signalHero : northstarHero;
-  const related = catalog.filter((candidate) => candidate.id !== item.id).slice(0, 6);
+  const related = catalog.filter((candidate) => candidate.id !== item?.id).slice(0, 6);
+
+  if (!item) {
+    return <main className="screen details-screen"><section className="details-copy"><h1>No title selected</h1><p>Add content through Sources, then choose a title.</p></section></main>;
+  }
 
   return (
     <main className="screen details-screen">
-      <div className="details-backdrop" style={{ backgroundImage: `url(${hero})` }} />
+      <div className="details-backdrop" />
       <div className="details-edge-fade" />
       <section className="details-copy">
         <h1>{item.title}</h1>

@@ -57,13 +57,22 @@ assert_process() {
 }
 
 assert_shell() {
-  dump_ui
-  grep -Fq 'text="OpenStream"' "$local_ui" || fail "product title is missing"
-  grep -Fq 'text="Discover"' "$local_ui" || fail "Discover navigation is missing"
-  grep -Fq 'text="Library"' "$local_ui" || fail "Library navigation is missing"
-  grep -Fq 'content-desc="Search"' "$local_ui" || fail "Search action is missing"
-  grep -Fq 'content-desc="More options"' "$local_ui" || fail "overflow action is missing"
-  assert_process
+  attempts=0
+  while [ "$attempts" -lt 8 ]; do
+    dump_ui
+    if grep -Fq 'text="OpenStream"' "$local_ui" &&
+       grep -Fq 'text="Discover"' "$local_ui" &&
+       grep -Fq 'text="Library"' "$local_ui" &&
+       grep -Fq 'content-desc="Search"' "$local_ui" &&
+       grep -Fq 'content-desc="More options"' "$local_ui"; then
+      assert_process
+      return
+    fi
+    assert_process
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+  fail "app shell did not appear after the native launch sequence"
 }
 
 tap_text() {

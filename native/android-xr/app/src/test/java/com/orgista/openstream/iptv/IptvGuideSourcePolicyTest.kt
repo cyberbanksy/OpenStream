@@ -6,18 +6,8 @@ import org.junit.Test
 
 class IptvGuideSourcePolicyTest {
     @Test
-    fun `supplemental us guides are bounded https xmltv sources`() {
-        val catalog = IptvSupplementalGuidePolicy.catalog(emptyList())
-
-        assertEquals(IptvSupplementalGuidePolicy.SOURCE_ID, catalog.source.id)
-        assertEquals(
-            listOf(
-                IptvSupplementalGuidePolicy.NATIONAL_GUIDE_URL,
-                IptvSupplementalGuidePolicy.LOCAL_GUIDE_URL,
-            ),
-            catalog.guideUrls,
-        )
-        assertTrue(catalog.guideUrls.all { it.startsWith("https://") })
+    fun `empty provider guide input does not invent a guide source`() {
+        assertEquals(emptyList<String>(), IptvGuideSourcePolicy.select(emptyList(), "My TV"))
     }
 
     @Test

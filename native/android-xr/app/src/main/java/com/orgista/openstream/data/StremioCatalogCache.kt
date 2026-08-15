@@ -19,7 +19,7 @@ data class CachedStremioCatalog(
     }
 }
 
-/** Offline fallback for public discovery metadata; no add-on URL is cached. */
+/** Offline fallback for user-configured discovery metadata; no add-on URL is cached. */
 object StremioCatalogCache {
     private fun file(context: Context) = File(context.filesDir, "stremio-catalog-v1.json")
 
@@ -38,6 +38,10 @@ object StremioCatalogCache {
             }
             CachedStremioCatalog(root.optLong("updatedAtMs"), items, sections)
         }.onFailure { Logs.warn("add-on catalog cache could not be read") }.getOrNull()
+    }
+
+    fun remove(context: Context) {
+        file(context).delete()
     }
 
     fun save(context: Context, items: List<MediaItem>, nowMs: Long = System.currentTimeMillis()) {
@@ -160,4 +164,23 @@ object StremioCatalogCache {
     private fun JSONArray?.strings(): List<String> =
         if (this == null) emptyList()
         else (0 until length()).mapNotNull { optString(it).takeIf(String::isNotBlank) }
+}
+
+/** Retains cache rows only when their add-on and video catalog still exist in user settings. */
+object ConfiguredStremioCatalogPolicy {
+    fun retain(cached: CachedStremioCatalog?, configured: List<StremioAddon>): CachedStremioCatalog? {
+        if (cached == null) return null
+        val allowed = configured
+            .filter { it.enabled }
+            .associate { addon ->
+                addon.manifestId to addon.catalogs
+                    .filter { StremioMediaTypePolicy.isSupported(it.type) }
+                    .mapTo(hashSetOf()) { "${it.type}:${it.id}" }
+            }
+        val sections = cached.sections.filter { section ->
+            section.catalogId in allowed[section.addonId].orEmpty()
+        }
+        val items = sections.flatMap(AddonCatalogSection::items).distinctBy { it.imdbId ?: it.id }
+        return cached.copy(items = items, sections = sections).takeIf { sections.isNotEmpty() }
+    }
 }

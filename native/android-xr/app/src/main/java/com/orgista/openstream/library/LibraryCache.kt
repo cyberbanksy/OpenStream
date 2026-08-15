@@ -12,8 +12,8 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Persists the last indexed library so the real catalog shows instantly on
- * launch instead of the demo placeholder while a background re-scan runs.
+ * Persists the last indexed library so its real catalog shows instantly while
+ * a background re-scan runs.
  * Only the fields needed to browse and play are cached; rich detail metadata
  * is re-fetched lazily when a title opens.
  */

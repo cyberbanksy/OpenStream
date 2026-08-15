@@ -94,7 +94,6 @@ export type MediaItem = {
   rating: string;
   runtimeMinutes: number;
   artworkCell: [number, number];
-  heroAsset?: "northstar" | "signal";
   progress?: number;
   remaining?: string;
   candidates: MediaCandidate[];

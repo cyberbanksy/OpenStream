@@ -205,7 +205,7 @@ object StremioClient {
             val value = values.optJSONObject(index) ?: return@mapNotNull null
             val type = value.optString("type")
             val id = value.optString("id")
-            if (type.isBlank() || id.isBlank()) return@mapNotNull null
+            if (type.isBlank() || id.isBlank() || !StremioMediaTypePolicy.isSupported(type)) return@mapNotNull null
             val extra = value.optJSONArray("extra")
             val requiresInput = extra != null && (0 until extra.length()).any { extraIndex ->
                 extra.optJSONObject(extraIndex)?.optBoolean("isRequired") == true
@@ -299,7 +299,7 @@ object StremioClient {
         val imdbId = listOf(meta.optString("imdbId"), meta.optString("imdb_id"), rawId)
             .firstOrNull { it.matches(Regex("tt\\d{5,12}")) }
         val imdbRating = meta.opt("imdbRating")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
-        val kind = if (type == "series" || type == "tv") MediaKind.SERIES else MediaKind.MOVIE
+        val kind = StremioMediaTypePolicy.kind(type) ?: return null
         val episodes = if (kind == MediaKind.SERIES) {
             parseEpisodes(
                 values = meta.optJSONArray("videos"),
