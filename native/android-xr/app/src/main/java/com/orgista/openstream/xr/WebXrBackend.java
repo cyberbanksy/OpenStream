@@ -16,11 +16,22 @@ public final class WebXrBackend implements ImmersiveVideoBackend {
 
     @Override
     public boolean isAvailable(Activity activity) {
-        return runtime.immersiveRuntimeAvailable();
+        // A blank WEB_XR_URL means this build has no configured viewer (release
+        // builds ship empty until a real URL is set). Report unavailable so the
+        // caller keeps the flat player instead of opening a dead loopback.
+        return runtime.immersiveRuntimeAvailable() && hasViewerUrl();
+    }
+
+    private static boolean hasViewerUrl() {
+        String url = BuildConfig.WEB_XR_URL;
+        return url != null && !url.trim().isEmpty();
     }
 
     @Override
     public LaunchResult launch(Activity activity, ImmersiveMediaDescriptor media) {
+        if (!hasViewerUrl()) {
+            return new LaunchResult(false, "The immersive viewer is not configured for this build");
+        }
         Uri viewer = Uri.parse(BuildConfig.WEB_XR_URL).buildUpon()
                 .appendQueryParameter("src", media.uri().toString())
                 .appendQueryParameter("projection", projectionValue(media.projection()))

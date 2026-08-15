@@ -39,17 +39,25 @@ export function ConnectionsScreen() {
     { title: "Discovery & requests", kinds: new Set<ConnectionKind>(["stremio", "sonarr", "radarr"]) },
     { title: "Download managers", kinds: new Set<ConnectionKind>(["sabnzbd", "nzbget"]) },
   ];
+  // Catch-all so a connection whose kind is not in any group stays visible.
+  const groupedKinds = new Set(groups.flatMap((group) => [...group.kinds]));
+  const ungrouped = connections.filter((item) => !groupedKinds.has(item.kind));
+
+  const connectionRow = (connection: ConnectionSummary) => {
+    const Icon = iconByKind[connection.kind] ?? Server;
+    return <button key={connection.id} data-focusable className={connection.id === selected?.id ? "connection-row selected" : "connection-row"} onClick={() => setSelectedId(connection.id)}><Icon size={21} /><span><strong>{connection.name}</strong><small>{connection.detail}</small></span><StatusDot state={connection.state} /><ChevronRight size={16} /></button>;
+  };
 
   return (
     <main className="screen workspace-screen connections-screen">
       <aside className="connections-list" aria-label="Connections">
         <header><div><h1>Connections</h1><p>Sources and server handoffs</p></div><button data-focusable data-autofocus autoFocus aria-label="Add connection" className="icon-action" onClick={openConnectionDialog}><Plus size={22} /></button></header>
         {groups.map((group) => (
-          <section key={group.title}><span className="side-label">{group.title}</span>{connections.filter((item) => group.kinds.has(item.kind)).map((connection) => {
-            const Icon = iconByKind[connection.kind] ?? Server;
-            return <button key={connection.id} data-focusable className={connection.id === selected?.id ? "connection-row selected" : "connection-row"} onClick={() => setSelectedId(connection.id)}><Icon size={21} /><span><strong>{connection.name}</strong><small>{connection.detail}</small></span><StatusDot state={connection.state} /><ChevronRight size={16} /></button>;
-          })}</section>
+          <section key={group.title}><span className="side-label">{group.title}</span>{connections.filter((item) => group.kinds.has(item.kind)).map(connectionRow)}</section>
         ))}
+        {ungrouped.length > 0 ? (
+          <section><span className="side-label">Other</span>{ungrouped.map(connectionRow)}</section>
+        ) : null}
       </aside>
       <section className="connections-workspace">
         {selected ? <ConnectionDetail connection={selected} /> : <button onClick={openConnectionDialog}>Add your first connection</button>}

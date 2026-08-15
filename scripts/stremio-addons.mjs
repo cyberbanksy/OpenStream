@@ -20,7 +20,10 @@ async function jsonWithRetry(url, { fetchImpl = fetch, wait = (ms) => new Promis
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     let response;
     try {
-      response = await fetchImpl(url, { headers: { accept: "application/json", "user-agent": "OpenStream-validator/1" } });
+      response = await fetchImpl(url, {
+        headers: { accept: "application/json", "user-agent": "OpenStream-validator/1" },
+        signal: AbortSignal.timeout(15_000),
+      });
     } catch {
       if (attempt >= MAX_ATTEMPTS - 1) throw new Error("network failure");
       await wait(retryDelayMs(attempt));

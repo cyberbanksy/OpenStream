@@ -384,10 +384,16 @@ fun OpenStreamApp(onExit: () -> Unit) {
                     it.enabled && "catalog" in it.resources
                 }
                 val fetchedSections = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    activeCatalogAddons.flatMap { addon ->
-                        runCatching { StremioClient.catalogSectionsFor(addon) }
-                            .onFailure { Logs.warn("catalog refresh failed for ${addon.name}") }
-                            .getOrDefault(emptyList())
+                    // Fetch every add-on's catalog concurrently; order and the
+                    // per-add-on failure isolation match the sequential version.
+                    coroutineScope {
+                        activeCatalogAddons.map { addon ->
+                            async {
+                                runCatching { StremioClient.catalogSectionsFor(addon) }
+                                    .onFailure { Logs.warn("catalog refresh failed for ${addon.name}") }
+                                    .getOrDefault(emptyList())
+                            }
+                        }.flatMap { it.await() }
                     }
                 }
                 if (fetchedSections.isNotEmpty()) {
@@ -434,17 +440,24 @@ fun OpenStreamApp(onExit: () -> Unit) {
             }
             val previous = youtubeCatalogs.associateBy { it.addonId }
             val sections = withContext(Dispatchers.IO) {
-                channels.mapNotNull { channel ->
-                    runCatching {
-                        val feed = YoutubeChannelClient.recentVideos(channel)
-                        YoutubeSourcePolicy.section(
-                            channel.copy(name = feed.channelTitle.ifBlank { channel.name }),
-                            feed.videos,
-                        )
-                    }.onFailure {
-                        Logs.warn("YouTube channel refresh failed for ${channel.name}")
-                    }.getOrNull() ?: previous[channel.id]
-                }.filter { it.items.isNotEmpty() }
+                // Refresh every channel concurrently. Each channel keeps its own
+                // fallback to the previous good rail, so one failure never drops
+                // the others, and result order is preserved.
+                coroutineScope {
+                    channels.map { channel ->
+                        async {
+                            runCatching {
+                                val feed = YoutubeChannelClient.recentVideos(channel)
+                                YoutubeSourcePolicy.section(
+                                    channel.copy(name = feed.channelTitle.ifBlank { channel.name }),
+                                    feed.videos,
+                                )
+                            }.onFailure {
+                                Logs.warn("YouTube channel refresh failed for ${channel.name}")
+                            }.getOrNull() ?: previous[channel.id]
+                        }
+                    }.map { it.await() }
+                }.filterNotNull().filter { it.items.isNotEmpty() }
             }
             youtubeCatalogs = sections
             Logs.event("YouTube sources refreshed: ${sections.size} channels, ${sections.sumOf { it.items.size }} videos")
@@ -655,11 +668,17 @@ fun OpenStreamApp(onExit: () -> Unit) {
         )
     }
     val discoverFeedPreferences = remember(addonRevision) { connectionStore.discoverFeedPreferences() }
+    // The ranked catalog and Up Next both need viewing signals for the same id
+    // set, so compute it once per revision and share it rather than making a
+    // separate whole-catalog pass here.
+    val catalogHistory = remember(catalog, playbackRevision) {
+        playbackStore.viewingSignals(catalog.map { it.id })
+    }
     val upNextItems = remember(catalog, youtubeCatalogs, playbackRevision, discoverFeedPreferences) {
         UpNextPolicy.select(
             rankedCatalog = catalog,
             youtubeSections = youtubeCatalogs,
-            history = playbackStore.viewingSignals(catalog.map { it.id }),
+            history = catalogHistory,
         )
     }
     var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
@@ -698,12 +717,14 @@ fun OpenStreamApp(onExit: () -> Unit) {
                 "",
             )
             val activity = context as? Activity
-            if (activity != null && VrPlaybackRoutingPolicy.shouldUseImmersivePlayer(
+            val webXrBackend = WebXrBackend(xrRuntime)
+            if (activity != null && webXrBackend.isAvailable(activity) &&
+                VrPlaybackRoutingPolicy.shouldUseImmersivePlayer(
                     xrRuntime.immersiveRuntimeAvailable(),
                     immersive,
                 )
             ) {
-                val launched = WebXrBackend(xrRuntime).launch(activity, immersive)
+                val launched = webXrBackend.launch(activity, immersive)
                 if (launched.launched()) {
                     Logs.event("play immersive: ${item.title} · ${immersive.projection().name}")
                     return@playGuarded
@@ -737,23 +758,37 @@ fun OpenStreamApp(onExit: () -> Unit) {
         }
     }
 
+    // Hoisted so Details/Player don't re-parse the add-on JSON — or rebuild the
+    // metadata loader — on every recomposition. These screens recompose on the
+    // 30s clock tick and battery broadcasts while open; keying on the addon /
+    // library revisions (and the online flag) keeps the work to actual changes.
+    val detailAddons = remember(addonRevision, deviceStatus.online) {
+        if (deviceStatus.online) connectionStore.stremioAddons().filter { it.enabled } else emptyList()
+    }
+    val subtitleAddons = remember(addonRevision, deviceStatus.online) {
+        if (deviceStatus.online) {
+            connectionStore.stremioAddons().filter { it.enabled && "subtitles" in it.resources }
+        } else {
+            emptyList()
+        }
+    }
+    val metadataLoader = remember(libraryRevision) {
+        com.orgista.openstream.library.MetadataLoader(
+            libraryStore.reusableTmdbCredential(),
+            libraryStore.reusableOmdbCredential(),
+        )
+    }
+
     when (val current = screen) {
         is Screen.Details -> {
             DetailsScreen(
                 item = current.item,
                 kidsMode = kidsMode,
-                addons = if (deviceStatus.online) {
-                    connectionStore.stremioAddons().filter { it.enabled }
-                } else {
-                    emptyList()
-                },
+                addons = detailAddons,
                 offlineRuntime = offlineRuntime,
                 playbackStore = playbackStore,
                 online = deviceStatus.online,
-                metadataLoader = com.orgista.openstream.library.MetadataLoader(
-                    libraryStore.reusableTmdbCredential(),
-                    libraryStore.reusableOmdbCredential(),
-                ),
+                metadataLoader = metadataLoader,
                 onMetadataEnriched = { enriched ->
                     indexed?.let { currentLibrary ->
                         val updated = currentLibrary.copy(
@@ -804,11 +839,7 @@ fun OpenStreamApp(onExit: () -> Unit) {
             PlayerScreen(
                 request = current.request,
                 autoSubtitles = libraryStore.autoSubtitles,
-                subtitleAddons = if (deviceStatus.online) {
-                    connectionStore.stremioAddons().filter { it.enabled && "subtitles" in it.resources }
-                } else {
-                    emptyList()
-                },
+                subtitleAddons = subtitleAddons,
                 deleteOfflineAfterWatched = libraryStore.deleteOfflineAfterWatched,
                 playbackStore = playbackStore,
                 onBack = { screen = if (current.request.isLive) Screen.Live else lastTab },

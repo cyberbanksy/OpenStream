@@ -35,7 +35,12 @@ class SmbDataSource(private val connection: NasConnection) : BaseDataSource(true
     override fun open(dataSpec: DataSpec): Long {
         try {
             uri = dataSpec.uri
-            transferInitializing(dataSpec)
+            val uriStr = dataSpec.uri.toString()
+            if (!SmbHostPolicy.isHostAllowed(uriStr, connection.host)) {
+                throw SecurityException(
+                    "SMB host mismatch or invalid scheme: requested '$uriStr' does not match configured NAS host '${connection.host}'"
+                )
+            }
             val smbFile = SmbFile(dataSpec.uri.toString(), Smb.context(connection))
             val length = smbFile.length()
             val access = SmbRandomAccessFile(smbFile, "r")
@@ -108,5 +113,15 @@ class SmbDataSource(private val connection: NasConnection) : BaseDataSource(true
     @UnstableApi
     class Factory(private val connection: NasConnection) : DataSource.Factory {
         override fun createDataSource(): DataSource = SmbDataSource(connection)
+    }
+}
+
+object SmbHostPolicy {
+    fun isHostAllowed(uriString: String, expectedHost: String): Boolean {
+        val uri = runCatching { java.net.URI(uriString) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        if (scheme != "smb") return false
+        val host = uri.host?.lowercase() ?: return false
+        return host.isNotBlank() && host.equals(expectedHost.lowercase(), ignoreCase = true)
     }
 }

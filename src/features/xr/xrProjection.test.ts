@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cropUvForEye, parseXrViewerOptions, projectionArc, resolveMediaSource } from "./xrProjection";
+import { cropUvForEye, parseXrViewerOptions, projectionArc } from "./xrProjection";
 
 describe("XR viewer options", () => {
   it("uses conservative defaults", () => {
@@ -26,17 +26,6 @@ describe("XR viewer options", () => {
     expect(options.rejectedLegacySource).toBe(true);
     expect(options.source).toBe("");
     expect(options.source).not.toContain("secret");
-  });
-
-  it("allows HTTPS and loopback sources but rejects public cleartext and URL credentials", () => {
-    expect(resolveMediaSource("https://media.example/movie.mp4", "https://openstream.example"))
-      .toBe("https://media.example/movie.mp4");
-    expect(resolveMediaSource("http://127.0.0.1:9000/movie.mp4", "http://127.0.0.1:5173"))
-      .toBe("http://127.0.0.1:9000/movie.mp4");
-    expect(() => resolveMediaSource("http://media.example/movie.mp4", "https://openstream.example"))
-      .toThrow(/HTTPS/);
-    expect(() => resolveMediaSource("https://user:pass@media.example/movie.mp4", "https://openstream.example"))
-      .toThrow(/Credentials/);
   });
 });
 

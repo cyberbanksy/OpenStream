@@ -94,12 +94,12 @@ class LibraryStore(context: Context) {
         prefs.edit().putString(KEY_FOLDERS, array.toString()).apply()
     }
 
-    private companion object {
-        const val KEY_FOLDERS = "folders.v1"
-        const val KEY_TMDB = "tmdbApiKey.v1"
-        const val KEY_OMDB = "omdbApiKey.v1"
-        const val KEY_METADATA_OPT_IN = "metadataOptIn.v1"
-        const val KEY_AUTO_SUBS = "autoSubtitles.v1"
-        const val KEY_DELETE_OFFLINE_AFTER_WATCHED = "deleteOfflineAfterWatched.v1"
+    companion object {
+        private const val KEY_FOLDERS = "folders.v1"
+        private const val KEY_TMDB = "tmdbApiKey.v1"
+        private const val KEY_OMDB = "omdbApiKey.v1"
+        private const val KEY_METADATA_OPT_IN = "metadataOptIn.v1"
+        private const val KEY_AUTO_SUBS = "autoSubtitles.v1"
+        private const val KEY_DELETE_OFFLINE_AFTER_WATCHED = "deleteOfflineAfterWatched.v1"
     }
 }

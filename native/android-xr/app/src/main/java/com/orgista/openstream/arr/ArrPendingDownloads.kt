@@ -97,7 +97,7 @@ class ArrPendingDownloadStore(context: Context) {
         prefs.edit { putString(KEY, ArrPendingDownloadCodec.encode(values)) }
     }
 
-    private companion object { const val KEY = "requests" }
+    companion object { private const val KEY = "requests" }
 }
 
 data class ArrPendingFlushResult(val sent: Int, val remaining: Int, val destinations: Set<ArrKind>)

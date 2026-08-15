@@ -1,4 +1,4 @@
-import { type RefObject, useEffect } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 const focusableSelector = [
   "button:not([disabled])",
@@ -10,6 +10,13 @@ const focusableSelector = [
 ].join(",");
 
 export function useDialogFocusTrap(ref: RefObject<HTMLElement>, onClose: () => void) {
+  // Keep the latest onClose in a ref so a new handler identity does not tear
+  // down and re-run the trap, which would yank focus while the user types.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
@@ -23,7 +30,7 @@ export function useDialogFocusTrap(ref: RefObject<HTMLElement>, onClose: () => v
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -48,5 +55,5 @@ export function useDialogFocusTrap(ref: RefObject<HTMLElement>, onClose: () => v
       dialog.removeEventListener("keydown", handleKeyDown);
       previouslyFocused?.focus({ preventScroll: true });
     };
-  }, [onClose, ref]);
+  }, [ref]);
 }

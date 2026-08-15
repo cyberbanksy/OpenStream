@@ -11,7 +11,7 @@ export function LibraryScreen() {
   const [sort, setSort] = useState<"recent" | "title">("recent");
   const items = useMemo(() => {
     const filtered = catalog.filter((item) => {
-      if (filter === "all") return item.id !== "immersive-frontier";
+      if (filter === "all") return true;
       if (filter === "immersive") return item.candidates.some((candidate) => candidate.format.projection !== "flat");
       return item.kind === filter;
     });

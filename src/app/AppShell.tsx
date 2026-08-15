@@ -1,7 +1,7 @@
 import { Activity, Baby, FolderOpen, Home, Radio, Search, Settings, UserCircle } from "lucide-react";
 import { type CSSProperties, useEffect, useState } from "react";
 import { useApp } from "./AppContext";
-import type { ViewId } from "./types";
+import { kidsHiddenViews, type ViewId } from "./types";
 import { useSpatialNavigation } from "./useSpatialNavigation";
 import { Brand } from "../components/Brand";
 import { Toast } from "../components/Toast";
@@ -17,18 +17,22 @@ import { PlayerScreen } from "../features/player/PlayerScreen";
 import { SearchScreen } from "../features/search/SearchScreen";
 import { SettingsScreen } from "../features/settings/SettingsScreen";
 
-const nav: Array<{ id: ViewId; label: string; kidsHidden?: boolean }> = [
+/** Design canvas the UI is authored against; the shell scales it to the viewport. */
+const DESIGN_WIDTH = 1920;
+const DESIGN_HEIGHT = 1080;
+
+const nav: Array<{ id: ViewId; label: string }> = [
   { id: "discover", label: "Discover" },
   { id: "library", label: "Library" },
   { id: "live", label: "Live" },
-  { id: "connections", label: "Connections", kidsHidden: true },
+  { id: "connections", label: "Connections" },
 ];
 
-const rail: Array<{ id: ViewId; label: string; icon: typeof Home; kidsHidden?: boolean }> = [
+const rail: Array<{ id: ViewId; label: string; icon: typeof Home }> = [
   { id: "discover", label: "Discover", icon: Home },
   { id: "live", label: "Live", icon: Radio },
   { id: "library", label: "Library", icon: FolderOpen },
-  { id: "activity", label: "Activity", icon: Activity, kidsHidden: true },
+  { id: "activity", label: "Activity", icon: Activity },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -39,14 +43,14 @@ function currentPrimaryView(view: ViewId) {
 
 export function AppShell() {
   const { view, navigate, connectionDialogOpen, policy, kidsMode } = useApp();
-  const [scale, setScale] = useState(() => Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1));
+  const [scale, setScale] = useState(() => Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT, 1));
   useSpatialNavigation();
   const onboarding = policy === undefined;
   const fullScreen = view === "player" || view === "search";
   const cinematicHome = view === "discover";
   const primaryView = currentPrimaryView(view);
-  const navItems = nav.filter((item) => !kidsMode || !item.kidsHidden);
-  const railItems = rail.filter((item) => !kidsMode || !item.kidsHidden);
+  const navItems = nav.filter((item) => !kidsMode || !kidsHiddenViews.includes(item.id));
+  const railItems = rail.filter((item) => !kidsMode || !kidsHiddenViews.includes(item.id));
 
   useEffect(() => {
     const focusTarget =
@@ -57,7 +61,7 @@ export function AppShell() {
   }, [view]);
 
   useEffect(() => {
-    const updateScale = () => setScale(Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1));
+    const updateScale = () => setScale(Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT, 1));
     window.addEventListener("resize", updateScale);
     return () => window.removeEventListener("resize", updateScale);
   }, []);

@@ -48,6 +48,12 @@ for (const [name, width, height] of [
   if (process.platform === "darwin") {
     execFileSync("sips", ["-z", String(height), String(width), destination], { stdio: "ignore" });
   }
+  // Assert the shipped dimensions like the webOS path does. Off darwin there is
+  // no sips resize, so a wrong-size Roku asset errors here instead of shipping.
+  const dimensions = await pngDimensions(destination);
+  if (dimensions.width !== width || dimensions.height !== height) {
+    throw new Error(`${name} must be ${width}x${height}, got ${dimensions.width}x${dimensions.height}`);
+  }
 }
 
 const webosDestination = path.join(outputRoot, "webos");

@@ -1,14 +1,9 @@
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { normalizeInterval, persistSnapshot } from "./snapshot-cache.mjs";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const DEFAULT_REFRESH_MS = 6 * 60 * 60_000;
 const MIN_REFRESH_MS = 15 * 60_000;
-
-function normalizedInterval(value) {
-  const parsed = Number(value ?? DEFAULT_REFRESH_MS);
-  return Number.isFinite(parsed) ? Math.max(MIN_REFRESH_MS, parsed) : DEFAULT_REFRESH_MS;
-}
 
 function movie(value) {
   return {
@@ -24,12 +19,28 @@ function movie(value) {
   };
 }
 
-async function persistSnapshot(cacheFile, snapshot) {
-  if (!cacheFile) return;
-  await mkdir(dirname(cacheFile), { recursive: true });
-  const temporary = `${cacheFile}.tmp`;
-  await writeFile(temporary, JSON.stringify(snapshot), { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, cacheFile);
+function restoredMovie(entry) {
+  if (!entry || typeof entry !== "object" || !Number.isInteger(entry.id)) return null;
+  return {
+    id: entry.id,
+    title: typeof entry.title === "string" ? entry.title : "",
+    overview: typeof entry.overview === "string" ? entry.overview : "",
+    releaseDate: typeof entry.releaseDate === "string" ? entry.releaseDate : "",
+    voteAverage: Number.isFinite(entry.voteAverage) ? entry.voteAverage : 0,
+    popularity: Number.isFinite(entry.popularity) ? entry.popularity : 0,
+    posterPath: typeof entry.posterPath === "string" ? entry.posterPath : null,
+    backdropPath: typeof entry.backdropPath === "string" ? entry.backdropPath : null,
+    genreIds: Array.isArray(entry.genreIds) ? entry.genreIds.filter(Number.isInteger) : [],
+  };
+}
+
+/** Validates a persisted metadata snapshot before it is trusted at startup. */
+function validatedCache(value) {
+  if (!value || typeof value !== "object" || !Array.isArray(value.movies)) return null;
+  return {
+    refreshedAt: Number.isFinite(value.refreshedAt) ? value.refreshedAt : null,
+    movies: value.movies.map(restoredMovie).filter(Boolean),
+  };
 }
 
 /** Periodically caches public TMDB catalog metadata; it never downloads media files. */
@@ -43,10 +54,22 @@ export function createTmdbMetadataService({
 } = {}) {
   const reusableCredential = credential.trim();
   const bearer = reusableCredential.startsWith("eyJ") ? reusableCredential : null;
-  const intervalMs = normalizedInterval(refreshIntervalMs);
+  const intervalMs = normalizeInterval(refreshIntervalMs, { defaultMs: DEFAULT_REFRESH_MS, minMs: MIN_REFRESH_MS });
   let timer;
   let refreshing;
+  let restored = false;
   let snapshot = { enabled: Boolean(reusableCredential), refreshedAt: null, movies: [] };
+
+  async function restore() {
+    if (restored || !cacheFile) return;
+    restored = true;
+    try {
+      const cached = validatedCache(JSON.parse(await readFile(cacheFile, "utf8")));
+      if (cached) snapshot = { enabled: Boolean(reusableCredential), ...cached };
+    } catch (error) {
+      if (error?.code !== "ENOENT") onError(new Error("TMDB metadata cache could not be restored."));
+    }
+  }
 
   async function page(path) {
     const url = new URL(`${TMDB_BASE}${path}`);
@@ -92,6 +115,7 @@ export function createTmdbMetadataService({
       return refreshing;
     },
     async start() {
+      await restore();
       if (!reusableCredential || timer) return snapshot;
       timer = setInterval(() => { void this.refresh().catch(onError); }, intervalMs);
       timer.unref?.();

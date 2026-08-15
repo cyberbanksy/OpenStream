@@ -25,7 +25,6 @@ const allowedOrigins = new Set(
     .map((value) => value.trim())
     .filter(Boolean),
 );
-const allowedHosts = new Set([`${urlHost}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 const connectionVault = new Map();
 const oauthLaunches = new Map();
 const oauthStates = new Map();
@@ -34,6 +33,7 @@ const mediaVault = new Map();
 const xrHandoffVault = new Map();
 const nasVault = new Map();
 const transcodeVault = new Map();
+const transcodeInputVault = new Map();
 const MAX_ARR_OPTIONS_PER_KIND = 128;
 const MAX_ARR_PROFILE_NAME_LENGTH = 256;
 const MAX_ARR_ROOT_PATH_LENGTH = 2048;
@@ -244,6 +244,7 @@ async function testConnection(draft, ownerId) {
     connectionVault.set(id, record);
     const launchToken = randomBytes(32).toString("base64url");
     oauthLaunches.set(launchToken, { connectionId: id, ownerId, createdAt: Date.now() });
+    pruneVault(oauthLaunches, 100);
     return {
       connection: publicConnection(record),
       authorizationUrl: `http://${urlHost}:${port}/api/oauth/google/start?launch=${encodeURIComponent(launchToken)}`,
@@ -419,6 +420,7 @@ async function beginGoogleOAuth(requestUrl, response) {
   const verifier = base64Url(randomBytes(48));
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   oauthStates.set(state, { connectionId: record.id, ownerId: record.ownerId, verifier, createdAt: Date.now() });
+  pruneVault(oauthStates, 100);
   const redirectUri = `http://${urlHost}:${port}/api/oauth/google/callback`;
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", record.clientId);
@@ -472,9 +474,7 @@ async function finishGoogleOAuth(requestUrl, response) {
   response.end(html);
 }
 
-async function driveAccessToken(record) {
-  if (record.accessToken && record.expiresAt > Date.now() + 60_000) return record.accessToken;
-  if (!record.refreshToken) throw new Error("Google Drive authorization has expired.");
+async function refreshDriveAccessToken(record) {
   const form = new URLSearchParams({ client_id: record.clientId, refresh_token: record.refreshToken, grant_type: "refresh_token" });
   const tokens = await safeRequestJson("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -484,6 +484,15 @@ async function driveAccessToken(record) {
   record.accessToken = requireString(tokens.access_token, "Google access token", 8192);
   record.expiresAt = Date.now() + Number(tokens.expires_in ?? 3600) * 1000;
   return record.accessToken;
+}
+
+async function driveAccessToken(record) {
+  if (record.accessToken && record.expiresAt > Date.now() + 60_000) return record.accessToken;
+  if (!record.refreshToken) throw new Error("Google Drive authorization has expired.");
+  record.refreshInFlight ??= refreshDriveAccessToken(record).finally(() => {
+    record.refreshInFlight = undefined;
+  });
+  return record.refreshInFlight;
 }
 
 function requireGoogleFileId(value) {
@@ -531,7 +540,7 @@ function resolveTranscodeInput(mediaUrl, ownerId) {
   if (parsed.pathname === "/gateway/stremio/media" || parsed.pathname === "/api/stremio/media") {
     const stream = streamVault.get(parsed.searchParams.get("streamId") ?? "");
     if (!stream || stream.ownerId !== ownerId) throw new Error("The transcode source is invalid or expired.");
-    return { kind: "stremio", input: stream.target };
+    return { kind: "stremio", input: stream.target, targetPolicy: stream.targetPolicy };
   }
   throw new Error("Only NAS and Stremio gateway media can be transcoded locally.");
 }
@@ -583,14 +592,14 @@ function redeemXrHandoff(value, ownerId) {
   };
 }
 
-async function routeRequest(request, response, session, logger, metadataService, netflixTop10Service) {
+async function routeRequest(request, response, session, logger, metadataService, netflixTop10Service, runtime) {
   const origin = request.headers.origin;
   const requestUrl = parseCanonicalRequestTarget(request.url ?? "/", {
-    origin: `http://${urlHost}:${port}`,
+    origin: runtime.origin,
     prefix: "/api",
   });
   if (!requestUrl) throw new GatewayHttpError(404, "Gateway route not found.");
-  if (!allowedHosts.has(request.headers.host)) throw new Error("Invalid gateway host header.");
+  if (!runtime.allowedHosts.has(request.headers.host)) throw new Error("Invalid gateway host header.");
   if (request.method === "OPTIONS") {
     assertAllowedOrigin(origin, allowedOrigins);
     response.writeHead(204, securityHeaders(origin));
@@ -599,6 +608,23 @@ async function routeRequest(request, response, session, logger, metadataService,
   }
   if (requestUrl.pathname === "/api/oauth/google/start" && request.method === "GET") return beginGoogleOAuth(requestUrl, response);
   if (requestUrl.pathname === "/api/oauth/google/callback" && request.method === "GET") return finishGoogleOAuth(requestUrl, response);
+  if (requestUrl.pathname === "/api/transcode/input" && request.method === "GET") {
+    // Internal loopback route for the local ffmpeg child: the single-purpose
+    // token exists only in the transcoder's command line, never in a browser,
+    // so remote bytes always flow through the gateway's safe fetch.
+    const inputToken = requireString(requestUrl.searchParams.get("inputToken"), "Transcode input token", 128);
+    const input = transcodeInputVault.get(inputToken);
+    if (!input || Date.now() - input.createdAt > 12 * 60 * 60_000) {
+      transcodeInputVault.delete(inputToken);
+      throw new Error("The transcode input token is invalid or expired.");
+    }
+    const range = validRange(request);
+    const upstream = await safeStreamRequest(input.target, {
+      headers: range ? { Range: range } : undefined,
+    }, input.targetPolicy);
+    pipeStream(request, response, upstream, origin);
+    return;
+  }
   const ownerId = authenticateSession(request, session);
   if (origin) assertAllowedOrigin(origin, allowedOrigins);
   else if (request.headers["x-openstream-proxy"] !== "loopback") throw new Error("Gateway requests must come from the OpenStream app origin.");
@@ -659,7 +685,9 @@ async function routeRequest(request, response, session, logger, metadataService,
       streamVault.delete(streamId);
       throw new Error("The Stremio stream route is invalid or expired.");
     }
-    const record = getConnection(stream.connectionId, ["stremio"], ownerId);
+    // Re-validate that the owning Stremio connection still exists in this
+    // session; the returned record is unused so it is not bound.
+    getConnection(stream.connectionId, ["stremio"], ownerId);
     const range = validRange(request);
     const upstream = await safeStreamRequest(stream.target, {
       headers: range ? { Range: range } : undefined,
@@ -747,6 +775,7 @@ async function routeRequest(request, response, session, logger, metadataService,
       ownerId,
       input: resolved.input,
       inputKind: resolved.kind,
+      targetPolicy: resolved.targetPolicy,
       profile: payload.profile && typeof payload.profile === "object" ? payload.profile : {},
       createdAt: Date.now(),
     });
@@ -764,18 +793,35 @@ async function routeRequest(request, response, session, logger, metadataService,
     }
     const probe = await probeTranscoder();
     if (!probe.available) throw new Error("Local transcoding is unavailable: ffmpeg was not found on this machine.");
-    const { child, plan } = startTranscode({ input: sessionRecord.input, profile: sessionRecord.profile, encoders: probe.encoders });
+    let input = sessionRecord.input;
+    let inputToken;
+    if (sessionRecord.inputKind === "stremio") {
+      // ffmpeg must never dial the remote itself (it follows redirects and does
+      // its own DNS); hand it a single-purpose loopback URL that relays through
+      // the gateway's SSRF-safe fetch and keeps Range support for seeking.
+      inputToken = randomBytes(24).toString("base64url");
+      transcodeInputVault.set(inputToken, {
+        target: sessionRecord.input,
+        targetPolicy: sessionRecord.targetPolicy,
+        createdAt: Date.now(),
+      });
+      pruneVault(transcodeInputVault, 100);
+      input = `${runtime.origin}/api/transcode/input?inputToken=${encodeURIComponent(inputToken)}`;
+    }
+    const { child, plan } = startTranscode({ input, profile: sessionRecord.profile, encoders: probe.encoders });
     response.writeHead(200, { ...securityHeaders(origin), "Content-Type": "video/mp4", "Cache-Control": "no-store" });
     let stderrTail = "";
     child.stderr.on("data", (chunk) => { stderrTail = (stderrTail + chunk.toString("utf8")).slice(-4096); });
     child.stdout.pipe(response);
     request.on("close", () => child.kill("SIGKILL"));
     child.on("close", (code, signal) => {
+      if (inputToken) transcodeInputVault.delete(inputToken);
       const context = code && !signal ? { stderr: stderrTail } : undefined;
       void logger?.info("transcode", `ffmpeg exited code=${code ?? "none"} signal=${signal ?? "none"} encoder=${plan.videoEncoder} cap=${plan.clamped.maxWidth}x${plan.clamped.maxHeight}`, context);
       response.end();
     });
     child.on("error", (error) => {
+      if (inputToken) transcodeInputVault.delete(inputToken);
       void logger?.error("transcode", `ffmpeg spawn failed: ${error.message}`);
       response.destroy();
     });
@@ -801,13 +847,14 @@ export function createGatewayServer({
   netflixTop10Service = createNetflixTop10Service(),
 } = {}) {
   const session = createGatewaySession(sessionToken);
-  return http.createServer((request, response) => {
+  const runtime = { allowedHosts: new Set(), origin: `http://${urlHost}:${port}` };
+  const server = http.createServer((request, response) => {
     const startedAt = Date.now();
     const loggedPath = (request.url ?? "/").split("?")[0];
     response.on("finish", () => {
       void logger?.info("gateway", `${request.method} ${loggedPath} -> ${response.statusCode}`, { ms: Date.now() - startedAt });
     });
-    void routeRequest(request, response, session, logger, metadataService, netflixTop10Service).catch((error) => {
+    void routeRequest(request, response, session, logger, metadataService, netflixTop10Service, runtime).catch((error) => {
       const origin = request.headers.origin;
       const message = error instanceof SyntaxError ? "Request JSON is invalid." : error.message || "Gateway request failed.";
       const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 400;
@@ -820,6 +867,19 @@ export function createGatewayServer({
       sendJson(response, statusCode, { error: message }, origin);
     });
   });
+  server.on("listening", () => {
+    const address = server.address();
+    if (!address || typeof address === "string") return;
+    const boundHost = address.address.includes(":") ? `[${address.address}]` : address.address;
+    runtime.origin = `http://${boundHost}:${address.port}`;
+    runtime.allowedHosts = new Set([
+      `${boundHost}:${address.port}`,
+      `127.0.0.1:${address.port}`,
+      `localhost:${address.port}`,
+      `[::1]:${address.port}`,
+    ]);
+  });
+  return server;
 }
 
 const isEntrypoint = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];

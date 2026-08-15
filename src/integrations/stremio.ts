@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { normalizeServiceUrl, requestJson, type UrlPolicy } from "./http";
 
 const resourceSchema = z.union([
   z.enum(["catalog", "meta", "stream", "subtitles", "addon_catalog"]),
@@ -48,17 +47,6 @@ export const stremioStreamSchema = z.object({
 
 export type StremioStream = z.infer<typeof stremioStreamSchema>;
 
-function toManifestUrl(value: string, policy: UrlPolicy) {
-  const normalized = normalizeServiceUrl(value, policy);
-  return normalized.endsWith("manifest.json") ? normalized : `${normalized}/manifest.json`;
-}
-
-export async function loadStremioManifest(value: string, policy: UrlPolicy = {}) {
-  const manifestUrl = toManifestUrl(value, policy);
-  const manifest = stremioManifestSchema.parse(await requestJson<unknown>(manifestUrl));
-  return { manifest, manifestUrl, transportUrl: manifestUrl.replace(/\/manifest\.json$/, "") };
-}
-
 export function buildStremioResourceUrl(
   transportUrl: string,
   resource: "catalog" | "meta" | "stream" | "subtitles",
@@ -71,9 +59,4 @@ export function buildStremioResourceUrl(
     path.push(new URLSearchParams(Object.entries(extra).map(([key, value]) => [key, String(value)])).toString());
   }
   return `${transportUrl}/${path.join("/")}.json`;
-}
-
-export async function loadStremioStreams(transportUrl: string, type: string, id: string) {
-  const payload = await requestJson<{ streams?: unknown[] }>(buildStremioResourceUrl(transportUrl, "stream", type, id));
-  return z.array(stremioStreamSchema).parse(payload.streams ?? []);
 }

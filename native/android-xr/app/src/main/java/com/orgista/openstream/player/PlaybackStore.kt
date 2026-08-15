@@ -3,6 +3,7 @@ package com.orgista.openstream.player
 import android.content.Context
 import com.orgista.openstream.domain.ViewingSignal
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 data class SavedPlayback(val positionMs: Long, val durationMs: Long)
 
@@ -95,7 +96,14 @@ class PlaybackStore(context: Context) {
         }
     }
 
-    private fun key(uri: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(uri.toByteArray())
-        .joinToString("") { "%02x".format(it) }
+    // The same media ids are hashed repeatedly — once per rail item plus every
+    // viewingSignals pass on each playbackRevision bump. Memoize so each id runs
+    // SHA-256 only once for the lifetime of the store.
+    private val digestCache = ConcurrentHashMap<String, String>()
+
+    private fun key(uri: String): String = digestCache.computeIfAbsent(uri) { raw ->
+        MessageDigest.getInstance("SHA-256")
+            .digest(raw.toByteArray())
+            .joinToString("") { byte -> "%02x".format(byte) }
+    }
 }

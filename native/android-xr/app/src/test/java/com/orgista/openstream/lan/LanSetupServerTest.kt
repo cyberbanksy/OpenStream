@@ -101,8 +101,13 @@ class LanSetupServerTest {
             assertTrue(page.contains("WEB MANAGEMENT"))
             assertTrue(page.contains("Add a source"))
 
+            val tokenMatch = Regex("""name="token" value="([^"]+)"""").find(page)
+            val token = tokenMatch?.groupValues?.get(1).orEmpty()
+            assertTrue("Expected session token in setup page", token.isNotBlank())
+
             val manifest = "https://root.example/manifest.json"
-            val body = "manifest=" + URLEncoder.encode(manifest, StandardCharsets.UTF_8.name())
+            val body = "manifest=" + URLEncoder.encode(manifest, StandardCharsets.UTF_8.name()) +
+                "&token=" + URLEncoder.encode(token, StandardCharsets.UTF_8.name())
             val post = rootUrl.openConnection() as HttpURLConnection
             post.requestMethod = "POST"
             post.doOutput = true
@@ -137,7 +142,91 @@ class LanSetupServerTest {
             val error = post.errorStream.bufferedReader().use { it.readText() }
             assertTrue(error.contains("OpenStream"))
             assertTrue(error.contains("HTTP links are not supported"))
-            assertTrue(error.contains("value=\"http://addon.example/config.json\""))
+            assertTrue(added.isEmpty())
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun `cross-origin request with untrusted Origin is rejected with 403`() {
+        val added = CopyOnWriteArrayList<String>()
+        val server = LanSetupServer(
+            addManifest = { manifest -> added += manifest; "Should Not Add" },
+            onAdded = {},
+        )
+        val session = server.start()
+        try {
+            val uri = URI.create(session.url)
+            val manifest = "https://addon.example/manifest.json"
+            val body = "manifest=" + URLEncoder.encode(manifest, StandardCharsets.UTF_8.name()) +
+                "&token=" + URLEncoder.encode(session.token, StandardCharsets.UTF_8.name())
+            java.net.Socket(uri.host, uri.port).use { socket ->
+                val request = "POST ${uri.rawPath} HTTP/1.1\r\n" +
+                    "Host: ${uri.host}:${uri.port}\r\n" +
+                    "Origin: https://attacker.evil.com\r\n" +
+                    "Content-Type: application/x-www-form-urlencoded\r\n" +
+                    "Content-Length: ${body.toByteArray(StandardCharsets.UTF_8).size}\r\n" +
+                    "Connection: close\r\n\r\n" +
+                    body
+                socket.getOutputStream().write(request.toByteArray(StandardCharsets.UTF_8))
+                socket.getOutputStream().flush()
+                val responseLine = socket.getInputStream().bufferedReader(StandardCharsets.UTF_8).readLine().orEmpty()
+                assertTrue("Expected 403 status line, got $responseLine", responseLine.startsWith("HTTP/1.1 403"))
+            }
+            assertEquals(emptyList<String>(), added)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun `cross-origin request with untrusted Referer is rejected with 403`() {
+        val added = CopyOnWriteArrayList<String>()
+        val server = LanSetupServer(
+            addManifest = { manifest -> added += manifest; "Should Not Add" },
+            onAdded = {},
+        )
+        val session = server.start()
+        try {
+            val manifest = "https://addon.example/manifest.json"
+            val body = "manifest=" + URLEncoder.encode(manifest, StandardCharsets.UTF_8.name()) +
+                "&token=" + URLEncoder.encode(session.token, StandardCharsets.UTF_8.name())
+            val post = URL(session.url).openConnection() as HttpURLConnection
+            post.requestMethod = "POST"
+            post.doOutput = true
+            post.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            post.setRequestProperty("Referer", "http://evil.com/malicious-page.html")
+            post.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+
+            assertEquals(403, post.responseCode)
+            assertTrue(added.isEmpty())
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun `POST with invalid or missing session token is rejected with 403`() {
+        val added = CopyOnWriteArrayList<String>()
+        val server = LanSetupServer(
+            addManifest = { manifest -> added += manifest; "Should Not Add" },
+            onAdded = {},
+        )
+        val session = server.start()
+        try {
+            val numeric = URI.create(session.url)
+            val rootUrl = URL("http://${numeric.host}:${numeric.port}/")
+            val manifest = "https://addon.example/manifest.json"
+            val body = "manifest=" + URLEncoder.encode(manifest, StandardCharsets.UTF_8.name()) +
+                "&token=invalid-fake-token-12345"
+            val post = rootUrl.openConnection() as HttpURLConnection
+            post.requestMethod = "POST"
+            post.doOutput = true
+            post.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            post.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+
+            assertEquals(403, post.responseCode)
             assertTrue(added.isEmpty())
         } finally {
             server.close()

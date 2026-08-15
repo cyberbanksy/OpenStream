@@ -311,4 +311,22 @@ class StremioClientTest {
         assertEquals(listOf("Actor One"), result.cast)
         assertEquals("Cached enrichment", result.tagline)
     }
+
+    @Test
+    fun `subtitle parsing safely handles unencoded characters and query parameters`() {
+        val subtitles = StremioClient.parseSubtitles(
+            """{
+                "subtitles":[
+                    {"id":"sub-vtt-query","url":"https://subs.example/track.vtt?token=123&lang=en","lang":"eng"},
+                    {"id":"sub-ass-space","url":"https://subs.example/path with spaces/track.ass#fragment","lang":"jpn"},
+                    {"id":"sub-ttml","url":"https://subs.example/captions.ttml","lang":"fra"}
+                ]
+            }""".trimIndent(),
+        )
+
+        assertEquals(3, subtitles.size)
+        assertEquals("text/vtt", subtitles[0].mimeType)
+        assertEquals("text/x-ssa", subtitles[1].mimeType)
+        assertEquals("application/ttml+xml", subtitles[2].mimeType)
+    }
 }

@@ -12,6 +12,12 @@ export type ViewId =
   | "player"
   | "search";
 
+/**
+ * Views a kids policy hides — the single source of truth for navigation
+ * guards, nav items, and rail items.
+ */
+export const kidsHiddenViews: readonly ViewId[] = ["connections", "activity"];
+
 export type ToastMessage = {
   id: number;
   tone: "success" | "warning" | "neutral";

@@ -1,5 +1,6 @@
 package com.orgista.openstream.iptv
 
+import com.orgista.openstream.data.UserAgents
 import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URI
@@ -70,7 +71,7 @@ object XtreamClient {
             readTimeout = 15_000
             instanceFollowRedirects = false
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "OpenStream/0.1")
+            setRequestProperty("User-Agent", UserAgents.product)
         }
         try {
             val status = connection.responseCode

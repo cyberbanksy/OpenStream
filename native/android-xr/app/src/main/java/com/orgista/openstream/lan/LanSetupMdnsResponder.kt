@@ -49,14 +49,14 @@ class LanSetupMdnsResponder(context: Context) : Closeable {
                 joinGroup(InetSocketAddress(group, MDNS_PORT), networkInterface)
             }
         } catch (error: Exception) {
-            runCatching { lock?.release() }
+            releaseLock(lock)
             Logs.warn("setup short address unavailable; numeric address remains active", error)
             return false
         }
         synchronized(this) {
             if (generation.get() != currentGeneration) {
                 runCatching { multicast.close() }
-                if (lock?.isHeld == true) runCatching { lock.release() }
+                releaseLock(lock)
                 return false
             }
             socket = multicast

@@ -1,11 +1,22 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { readFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const PRIVATE_HOSTS = new Set(["localhost", "localhost.localdomain"]);
 const LOOPBACK_BIND_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+const GATEWAY_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version || "0.1";
+  } catch {
+    return "0.1";
+  }
+})();
+// One outbound User-Agent for every gateway-originated request; version from package.json.
+const GATEWAY_USER_AGENT = `OpenStream-Gateway/${GATEWAY_VERSION}`;
 
 function addressIdentity({ address, family }) {
   return `${Number(family)}:${String(address).toLowerCase().replace(/^\[|\]$/g, "")}`;
@@ -219,7 +230,7 @@ export async function safeStreamRequest(urlValue, init = {}, policy = {}) {
   const transport = url.protocol === "https:" ? https : http;
   const headers = {
     Accept: "*/*",
-    "User-Agent": "OpenStream-Gateway/0.1",
+    "User-Agent": GATEWAY_USER_AGENT,
     ...init.headers,
   };
 
@@ -231,21 +242,24 @@ export async function safeStreamRequest(urlValue, init = {}, policy = {}) {
       servername: url.hostname,
       timeout: init.timeoutMs ?? 15_000,
     }, (response) => {
+      clearTimeout(deadline);
       const status = response.statusCode ?? 0;
       if (status >= 300 && status < 400) {
         response.resume();
         reject(new Error("Service redirects are not followed by the secure gateway."));
         return;
       }
-      if (status < 200 || status >= 300) {
-        response.resume();
-        reject(new Error(`Service request failed with status ${status}.`));
-        return;
-      }
       resolve(response);
     });
+    const deadline = setTimeout(
+      () => request.destroy(new Error("Service response headers exceeded the gateway deadline.")),
+      init.deadlineMs ?? 30_000,
+    );
     request.on("timeout", () => request.destroy(new Error("Service request timed out.")));
-    request.on("error", (error) => reject(new Error(redact(error.message))));
+    request.on("error", (error) => {
+      clearTimeout(deadline);
+      reject(new Error(redact(error.message)));
+    });
     request.end();
   });
 }
@@ -257,7 +271,7 @@ export async function safeRequest(urlValue, init = {}, policy = {}) {
   const body = init.body == null ? undefined : Buffer.from(String(init.body));
   const headers = {
     Accept: "application/json",
-    "User-Agent": "OpenStream-Gateway/0.1",
+    "User-Agent": GATEWAY_USER_AGENT,
     ...init.headers,
   };
   if (body && !headers["Content-Length"]) headers["Content-Length"] = String(body.length);
@@ -288,6 +302,7 @@ export async function safeRequest(urlValue, init = {}, policy = {}) {
         chunks.push(chunk);
       });
       response.on("end", () => {
+        clearTimeout(deadline);
         const text = Buffer.concat(chunks).toString("utf8");
         if (status < 200 || status >= 300) {
           reject(new Error(`Service request failed with status ${status}.`));
@@ -297,8 +312,15 @@ export async function safeRequest(urlValue, init = {}, policy = {}) {
       });
     });
 
+    const deadline = setTimeout(
+      () => request.destroy(new Error("Service request exceeded the gateway deadline.")),
+      init.deadlineMs ?? 30_000,
+    );
     request.on("timeout", () => request.destroy(new Error("Service request timed out.")));
-    request.on("error", (error) => reject(new Error(redact(error.message))));
+    request.on("error", (error) => {
+      clearTimeout(deadline);
+      reject(new Error(redact(error.message)));
+    });
     if (body) request.write(body);
     request.end();
   });

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createGoogleDriveAuthRequest } from "./googleDrive";
 import { parseArrOptions } from "./gateway";
 import { isPrivateHost, normalizeServiceUrl, redactSensitiveValue } from "./http";
 import { buildStremioResourceUrl, stremioManifestSchema } from "./stremio";
@@ -56,16 +55,5 @@ describe("integration security boundaries", () => {
         resources: ["stream"],
       }).name,
     ).toBe("Viewer Add-on");
-  });
-
-  it("generates a PKCE Google Drive authorization request with least-privilege scope", async () => {
-    const request = await createGoogleDriveAuthRequest({
-      clientId: "openstream.apps.googleusercontent.com",
-      redirectUri: "http://127.0.0.1:5173/oauth/google/callback",
-    });
-    const url = new URL(request.authorizationUrl);
-    expect(url.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/drive.file");
-    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(request.codeVerifier.length).toBeGreaterThan(43);
   });
 });

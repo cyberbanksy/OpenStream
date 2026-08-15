@@ -91,6 +91,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.offline.Download
 import com.orgista.openstream.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -248,8 +250,14 @@ fun DetailsScreen(
         val streamId = target.streamIdentity() ?: return emptyList()
         val type = if (target.kind == MediaKind.SERIES) "series" else "movie"
         return withContext(Dispatchers.IO) {
-            streamAddons.flatMap { addon ->
-                runCatching { StremioClient.streamsFor(addon, type, streamId) }.getOrDefault(emptyList())
+            // Query every stream add-on concurrently; add-on order is preserved
+            // and a single add-on failure still yields the others' streams.
+            coroutineScope {
+                streamAddons.map { addon ->
+                    async {
+                        runCatching { StremioClient.streamsFor(addon, type, streamId) }.getOrDefault(emptyList())
+                    }
+                }.flatMap { it.await() }
             }.distinctBy { it.url }
         }
     }

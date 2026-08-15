@@ -1,5 +1,6 @@
 package com.orgista.openstream.iptv
 
+import com.orgista.openstream.data.UserAgents
 import java.net.HttpURLConnection
 import java.net.URI
 
@@ -23,7 +24,7 @@ object IptvClient {
             readTimeout = 15_000
             instanceFollowRedirects = false
             setRequestProperty("Accept", "application/vnd.apple.mpegurl, audio/x-mpegurl, text/plain")
-            setRequestProperty("User-Agent", "OpenStream/0.1")
+            setRequestProperty("User-Agent", UserAgents.product)
         }
         try {
             val status = connection.responseCode

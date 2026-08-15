@@ -54,5 +54,36 @@ object LanSetupProtocol {
         return null
     }
 
-    private fun decode(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    fun generateSessionToken(): String {
+        val randomBytes = ByteArray(16)
+        java.security.SecureRandom().nextBytes(randomBytes)
+        return randomBytes.joinToString("") { "%02x".format(it) }
+    }
+
+    fun isValidOrigin(headerValue: String?, serverAddress: String?, serverPort: Int): Boolean {
+        if (headerValue.isNullOrBlank()) return true
+        if (headerValue.equals("null", ignoreCase = true)) return false
+        val uri = runCatching { URI(headerValue.trim()) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        if (scheme != "http" && scheme != "https") return false
+        val host = uri.host?.lowercase() ?: return false
+        val port = if (uri.port > 0) uri.port else (if (scheme == "https") 443 else 80)
+
+        val hostAllowed = when {
+            host == "openstream.local" -> true
+            host == "localhost" || host == "127.0.0.1" -> true
+            serverAddress != null && host.equals(serverAddress, ignoreCase = true) -> true
+            else -> runCatching {
+                val inet = InetAddress.getByName(host)
+                isAllowedClient(inet)
+            }.getOrDefault(false)
+        }
+        if (!hostAllowed) return false
+
+        return port == serverPort || (serverPort in setOf(80, 443) && port in setOf(80, 443))
+    }
+
+    private fun decode(value: String): String = runCatching {
+        URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    }.getOrDefault(value)
 }

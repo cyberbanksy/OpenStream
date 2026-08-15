@@ -38,7 +38,6 @@ function gatewayRequest(port, path, {
 } = {}) {
   const encodedBody = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   const headers = {
-    Host: "127.0.0.1:8787",
     Accept: "application/json",
     ...(origin ? { Origin: origin } : {}),
     ...(proxyMarker ? { "X-OpenStream-Proxy": "loopback" } : {}),
@@ -69,7 +68,6 @@ function gatewayMediaRequest(port, path, range, { sessionToken = GATEWAY_SESSION
       port,
       path,
       headers: {
-        Host: "127.0.0.1:8787",
         Origin: "http://127.0.0.1:5173",
         Range: range,
         ...(sessionToken ? { "X-OpenStream-Session": sessionToken } : {}),

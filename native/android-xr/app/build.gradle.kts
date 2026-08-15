@@ -28,16 +28,40 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Cloudflare's public download endpoint powers the pre-playback speed
+        // probe. Kept here (a real, shippable URL) so it can be pointed at a
+        // different host — or blanked to disable the probe — without a code
+        // change. WebXrBackend's viewer URL is per-build-type below, since the
+        // dev value is a localhost loopback that must never ship.
         buildConfigField(
             "String",
-            "WEB_XR_URL",
-            "\"http://127.0.0.1:5173/xr/viewer\""
+            "SPEED_TEST_URL",
+            "\"https://speed.cloudflare.com/__down\""
         )
 
         // FFmpeg software decoders ship native libs per ABI; the target
         // devices are 64-bit ARM, so ship only that to keep the APK lean.
         ndk {
             abiFilters += "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            // Local Vite dev server for the standards-based WebXR viewer.
+            buildConfigField(
+                "String",
+                "WEB_XR_URL",
+                "\"http://127.0.0.1:5173/xr/viewer\""
+            )
+        }
+        getByName("release") {
+            // TODO: set the production WebXR viewer URL before shipping a
+            // release build. While this is empty, WebXrBackend reports the
+            // immersive launch as unavailable and playback falls back to the
+            // flat player, so no dead localhost loopback is ever opened.
+            buildConfigField("String", "WEB_XR_URL", "\"\"")
         }
     }
 

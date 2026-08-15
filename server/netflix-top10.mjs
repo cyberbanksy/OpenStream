@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { normalizeInterval, persistSnapshot } from "./snapshot-cache.mjs";
 
 const OFFICIAL_COUNTRY_TSV = "https://www.netflix.com/tudum/top10/data/all-weeks-countries.tsv";
 const DEFAULT_REFRESH_MS = 4 * 60 * 60_000;
@@ -8,15 +9,27 @@ const DAILY_STALE_AFTER_MS = 30 * 60 * 60_000;
 const MAX_DAILY_BYTES = 5 * 1024 * 1024;
 const MAX_OFFICIAL_BYTES = 40 * 1024 * 1024;
 
+// The public "Trending Now" embed page and the anchor title it hangs off of.
+// Both are environment-overridable so a Netflix layout change never requires a
+// code edit to point the scraper at a different page.
+const NETFLIX_EMBED_BASE = process.env.OPENSTREAM_NETFLIX_TOP10_EMBED_BASE ?? "https://embed.beta.netflix.com";
+const NETFLIX_EMBED_TITLE_ID = process.env.OPENSTREAM_NETFLIX_TOP10_EMBED_TITLE_ID ?? "80057281";
+
+const PACKAGE_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version || "0.1";
+  } catch {
+    return "0.1";
+  }
+})();
+// One browser-shaped User-Agent for every Netflix source request (daily embed
+// and official weekly TSV), version derived from package.json.
+const NETFLIX_USER_AGENT = `Mozilla/5.0 (compatible; OpenStreamTop10/${PACKAGE_VERSION}; +https://github.com/cyberbanksy/OpenStream)`;
+
 function normalizeCountry(value) {
   const country = String(value ?? "US").trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(country)) throw new Error("Netflix Top 10 country must be an ISO 3166-1 alpha-2 code.");
   return country;
-}
-
-function normalizeInterval(value) {
-  const parsed = Number(value ?? DEFAULT_REFRESH_MS);
-  return Number.isFinite(parsed) ? Math.max(MIN_REFRESH_MS, parsed) : DEFAULT_REFRESH_MS;
 }
 
 function decodeHtml(value) {
@@ -128,14 +141,6 @@ export function parseNetflixOfficialCountryTsv(tsv, country = "US") {
   };
 }
 
-async function persistSnapshot(cacheFile, snapshot) {
-  if (!cacheFile) return;
-  await mkdir(dirname(cacheFile), { recursive: true });
-  const temporary = `${cacheFile}.tmp`;
-  await writeFile(temporary, JSON.stringify(snapshot), { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, cacheFile);
-}
-
 function validList(value, category) {
   if (!Array.isArray(value) || value.length > 10) return [];
   return value.filter((entry, index) =>
@@ -173,9 +178,29 @@ async function responseText(fetchImpl, url, maximumBytes, headers) {
   if (!response.ok) throw new Error(`Netflix Top 10 source returned HTTP ${response.status}.`);
   const declaredLength = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) throw new Error("Netflix Top 10 source exceeded its size limit.");
-  const text = await response.text();
-  if (Buffer.byteLength(text) > maximumBytes) throw new Error("Netflix Top 10 source exceeded its size limit.");
-  return text;
+  // Stream the body and count bytes as they arrive so an oversized (or
+  // chunked, content-length-less) response is rejected before it is fully
+  // buffered into memory.
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maximumBytes) throw new Error("Netflix Top 10 source exceeded its size limit.");
+    return text;
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maximumBytes) {
+      await reader.cancel();
+      throw new Error("Netflix Top 10 source exceeded its size limit.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /** Four-hour public cache with a last-good snapshot and official weekly fallback. */
@@ -190,8 +215,8 @@ export function createNetflixTop10Service({
   onError = () => {},
 } = {}) {
   const normalizedCountry = normalizeCountry(country);
-  const intervalMs = normalizeInterval(refreshIntervalMs);
-  const publicPage = dailyPageUrl ?? `https://embed.beta.netflix.com/${normalizedCountry.toLowerCase()}/title/80057281`;
+  const intervalMs = normalizeInterval(refreshIntervalMs, { defaultMs: DEFAULT_REFRESH_MS, minMs: MIN_REFRESH_MS });
+  const publicPage = dailyPageUrl ?? `${NETFLIX_EMBED_BASE}/${normalizedCountry.toLowerCase()}/title/${NETFLIX_EMBED_TITLE_ID}`;
   let timer;
   let refreshing;
   let restored = false;
@@ -229,7 +254,7 @@ export function createNetflixTop10Service({
       const html = await responseText(fetchImpl, publicPage, MAX_DAILY_BYTES, {
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (compatible; OpenStreamTop10/0.1; +https://github.com/cyberbanksy/OpenStream)",
+        "User-Agent": NETFLIX_USER_AGENT,
       });
       const overall = parseNetflixTrendingHtml(html, normalizedCountry);
       if (overall.length !== 10) throw new Error("Netflix public Trending Now markup did not contain ten titles.");
@@ -249,7 +274,7 @@ export function createNetflixTop10Service({
         const tsv = await responseText(fetchImpl, officialTsvUrl, MAX_OFFICIAL_BYTES, {
           Accept: "text/tab-separated-values,text/plain;q=0.9,*/*;q=0.8",
           Referer: "https://www.netflix.com/tudum/top10/",
-          "User-Agent": "Mozilla/5.0 (compatible; OpenStreamTop10/0.1; +https://github.com/cyberbanksy/OpenStream)",
+          "User-Agent": NETFLIX_USER_AGENT,
         });
         const fallback = parseNetflixOfficialCountryTsv(tsv, normalizedCountry);
         if (fallback.movies.length !== 10 || fallback.series.length !== 10) {

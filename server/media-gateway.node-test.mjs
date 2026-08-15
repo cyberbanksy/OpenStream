@@ -33,7 +33,6 @@ function gatewayRequest(port, requestPath, {
 } = {}) {
   const encodedBody = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   const headers = {
-    Host: "127.0.0.1:8787",
     Accept: "application/json",
     Origin: "http://127.0.0.1:5173",
     ...(sessionToken ? { "X-OpenStream-Session": sessionToken } : {}),
@@ -213,6 +212,123 @@ test("transcode sessions only accept vault-issued gateway media", async () => {
   } finally {
     await close(server);
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("transcode path never lets a redirecting upstream reach another address", async () => {
+  const victimHits = [];
+  const victim = http.createServer((request, response) => {
+    victimHits.push(request.url);
+    response.end("private");
+  });
+  const victimPort = await listen(victim);
+
+  const upstreamCalls = [];
+  let upstreamPort;
+  const upstream = http.createServer((request, response) => {
+    const url = new URL(request.url, "http://127.0.0.1");
+    upstreamCalls.push({ path: url.pathname, userAgent: request.headers["user-agent"] });
+    response.setHeader("Content-Type", "application/json");
+    if (url.pathname === "/manifest.json") {
+      response.end(JSON.stringify({ id: "org.openstream.redirector", name: "Redirector", version: "1.0.0", resources: ["stream"] }));
+      return;
+    }
+    if (url.pathname === "/stream/movie/tt1.json") {
+      response.end(JSON.stringify({ streams: [{ name: "Redirecting", url: `http://127.0.0.1:${upstreamPort}/redirect.mp4` }] }));
+      return;
+    }
+    if (url.pathname === "/redirect.mp4") {
+      response.statusCode = 302;
+      response.setHeader("Location", `http://127.0.0.1:${victimPort}/internal-secret`);
+      response.end();
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "not found" }));
+  });
+  upstreamPort = await listen(upstream);
+
+  const server = createGatewayServer({ sessionToken: GATEWAY_SESSION_TOKEN, logger: null });
+  const port = await listen(server);
+  try {
+    const probe = await probeTranscoder();
+    const connected = await gatewayRequest(port, "/api/connections", {
+      method: "POST",
+      body: { kind: "stremio", baseUrl: `http://127.0.0.1:${upstreamPort}`, allowPrivateNetwork: true },
+    });
+    assert.equal(connected.status, 200);
+    const streams = await gatewayRequest(port, "/api/stremio/streams", {
+      method: "POST",
+      body: { connectionId: connected.body.connection.id, type: "movie", id: "tt1" },
+    });
+    assert.equal(streams.status, 200);
+    const session = await gatewayRequest(port, "/api/transcode/sessions", {
+      method: "POST",
+      body: { mediaUrl: streams.body.streams[0].url, profile: { maxWidth: 1280, maxHeight: 720 } },
+    });
+    if (!probe.available) {
+      assert.equal(session.status, 400);
+      return;
+    }
+    assert.equal(session.status, 201);
+
+    const media = await gatewayRequest(port, session.body.transcodeUrl.replace("/gateway/", "/api/"));
+    assert.equal(media.status, 200);
+    const redirectCall = upstreamCalls.find((call) => call.path === "/redirect.mp4");
+    assert.ok(redirectCall, "the stream target must be fetched through the gateway relay");
+    assert.match(redirectCall.userAgent ?? "", /OpenStream-Gateway/, "ffmpeg must never dial the remote itself");
+    assert.deepEqual(victimHits, [], "a redirecting upstream must never reach another address via the transcode path");
+  } finally {
+    await close(server);
+    await close(upstream);
+    await close(victim);
+  }
+});
+
+test("stremio media relay preserves legitimate upstream statuses like 416", async () => {
+  let upstreamPort;
+  const upstream = http.createServer((request, response) => {
+    const url = new URL(request.url, "http://127.0.0.1");
+    if (url.pathname === "/manifest.json") {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ id: "org.openstream.ranges", name: "Ranges", version: "1.0.0", resources: ["stream"] }));
+      return;
+    }
+    if (url.pathname === "/stream/movie/tt2.json") {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ streams: [{ name: "Clip", url: `http://127.0.0.1:${upstreamPort}/clip.mp4` }] }));
+      return;
+    }
+    if (url.pathname === "/clip.mp4") {
+      response.statusCode = 416;
+      response.setHeader("Content-Range", "bytes */16");
+      response.end();
+      return;
+    }
+    response.statusCode = 404;
+    response.end();
+  });
+  upstreamPort = await listen(upstream);
+
+  const server = createGatewayServer({ sessionToken: GATEWAY_SESSION_TOKEN, logger: null });
+  const port = await listen(server);
+  try {
+    const connected = await gatewayRequest(port, "/api/connections", {
+      method: "POST",
+      body: { kind: "stremio", baseUrl: `http://127.0.0.1:${upstreamPort}`, allowPrivateNetwork: true },
+    });
+    assert.equal(connected.status, 200);
+    const streams = await gatewayRequest(port, "/api/stremio/streams", {
+      method: "POST",
+      body: { connectionId: connected.body.connection.id, type: "movie", id: "tt2" },
+    });
+    assert.equal(streams.status, 200);
+    const media = await gatewayRequest(port, streams.body.streams[0].url.replace("/gateway/", "/api/"), { range: "bytes=99-" });
+    assert.equal(media.status, 416);
+    assert.equal(media.headers["content-range"], "bytes */16");
+  } finally {
+    await close(server);
+    await close(upstream);
   }
 });
 

@@ -14,8 +14,8 @@ data class CachedStremioCatalog(
     fun isFresh(nowMs: Long = System.currentTimeMillis()): Boolean =
         items.isNotEmpty() && nowMs - updatedAtMs in 0 until REFRESH_AFTER_MS
 
-    private companion object {
-        const val REFRESH_AFTER_MS = 6L * 60L * 60L * 1_000L
+    companion object {
+        private const val REFRESH_AFTER_MS = 6L * 60L * 60L * 1_000L
     }
 }
 
@@ -42,10 +42,6 @@ object StremioCatalogCache {
 
     fun remove(context: Context) {
         file(context).delete()
-    }
-
-    fun save(context: Context, items: List<MediaItem>, nowMs: Long = System.currentTimeMillis()) {
-        save(context, items, emptyList(), nowMs)
     }
 
     fun saveSections(

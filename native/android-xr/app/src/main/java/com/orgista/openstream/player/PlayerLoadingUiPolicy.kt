@@ -1,5 +1,7 @@
 package com.orgista.openstream.player
 
+import com.orgista.openstream.data.UserAgents
+
 object PlayerLoadingUiPolicy {
     /** PlayerView sits below the branded Compose preparation panel, so its spinner must stay off. */
     const val showNativePlayerSpinner = false
@@ -30,7 +32,7 @@ object PlayerLoadingUiPolicy {
 }
 
 object PlaybackHttpPolicy {
-    const val userAgent = "OpenStream/0.1 Live"
+    val userAgent: String = UserAgents.live
     const val connectTimeoutMs = 8_000
     const val readTimeoutMs = 15_000
     const val liveConnectTimeoutMs = 4_000

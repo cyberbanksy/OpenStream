@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.SystemClock
+import com.orgista.openstream.BuildConfig
+import com.orgista.openstream.data.UserAgents
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -82,7 +84,7 @@ object BandwidthProbeRequestPolicy {
             headers = mapOf(
                 "Accept" to "application/octet-stream",
                 "Cache-Control" to "no-cache, no-store",
-                "User-Agent" to "OpenStream/0.1 speed-test",
+                "User-Agent" to UserAgents.speedTest,
             ),
         ),
         // Cloudflare's public test is normally called by a browser. Some edge
@@ -95,7 +97,7 @@ object BandwidthProbeRequestPolicy {
                 "Cache-Control" to "no-cache",
                 "Origin" to "https://speed.cloudflare.com",
                 "Referer" to "https://speed.cloudflare.com/",
-                "User-Agent" to "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36",
+                "User-Agent" to UserAgents.browser,
             ),
         ),
     )
@@ -148,6 +150,12 @@ class BandwidthStore(context: Context) {
 
 object NetworkBandwidthProbe {
     fun measure(transport: NetworkTransport): BandwidthMeasurement {
+        // Blanking SPEED_TEST_URL (see build.gradle.kts) disables the probe
+        // without a code change; surface it as the usual IOException callers
+        // already treat as best-effort.
+        if (BuildConfig.SPEED_TEST_URL.isBlank()) {
+            throw IOException("Speed test is disabled for this build.")
+        }
         val rates = ArrayList<Double>()
         var totalBytes = 0
         NetworkMeasurementPolicy.sampleSizes(transport).forEach { requestedBytes ->
@@ -184,7 +192,7 @@ object NetworkBandwidthProbe {
 
     private fun downloadSample(sampleBytes: Int, profile: BandwidthProbeRequestProfile): Pair<Double, Int> {
         val connection = URL(
-            "https://speed.cloudflare.com/__down?bytes=$sampleBytes${profile.querySuffix}",
+            "${BuildConfig.SPEED_TEST_URL}?bytes=$sampleBytes${profile.querySuffix}",
         ).openConnection() as HttpURLConnection
         connection.connectTimeout = 8_000
         connection.readTimeout = 25_000

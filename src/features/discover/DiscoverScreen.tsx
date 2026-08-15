@@ -8,7 +8,7 @@ import {
   Search,
   Settings,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../../app/AppContext";
 import { Artwork } from "../../components/Artwork";
 import { Brand } from "../../components/Brand";
@@ -18,6 +18,7 @@ import {
   type MediaCandidate,
   type MediaItem,
 } from "../../domain/media";
+import { isInWatchlist, toggleWatchlist } from "./watchlist";
 
 function formatRuntime(minutes: number) {
   const hours = Math.floor(minutes / 60);
@@ -111,6 +112,12 @@ export function DiscoverScreen() {
   const featured = useMemo(() => catalog.slice(0, 6), [catalog]);
   const [activeIndex, setActiveIndex] = useState(0);
   const selected = featured[Math.min(activeIndex, featured.length - 1)] ?? featured[0];
+  const selectedId = selected?.id;
+  const [watchlisted, setWatchlisted] = useState(false);
+
+  useEffect(() => {
+    setWatchlisted(selectedId ? isInWatchlist(selectedId) : false);
+  }, [selectedId]);
 
   if (!selected) {
     return (
@@ -214,11 +221,20 @@ export function DiscoverScreen() {
         <button data-focusable aria-label="Search" title="Search" onClick={() => navigate("search")}><Search size={25} /></button>
         <button
           data-focusable
-          aria-label="Add to watchlist"
-          title="Add to watchlist"
-          onClick={() => notify({ tone: "success", title: "Added to watchlist", detail: selected.title })}
+          aria-label={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+          title={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+          aria-pressed={watchlisted}
+          onClick={() => {
+            const added = toggleWatchlist(selected.id);
+            setWatchlisted(added);
+            notify({
+              tone: added ? "success" : "neutral",
+              title: added ? "Added to watchlist" : "Removed from watchlist",
+              detail: selected.title,
+            });
+          }}
         >
-          <Bookmark size={24} />
+          <Bookmark size={24} fill={watchlisted ? "currentColor" : "none"} />
         </button>
         <button data-focusable aria-label="Settings" title="Settings" onClick={() => navigate("settings")}><Settings size={25} /></button>
         <button className="profile-control" data-focusable aria-label="Profile and activity" title="Profile" onClick={() => navigate("activity")}>

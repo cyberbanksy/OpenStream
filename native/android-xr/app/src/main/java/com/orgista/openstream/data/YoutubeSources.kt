@@ -290,7 +290,7 @@ object YoutubeChannelClient {
             setRequestProperty("Accept", accept)
             setRequestProperty("Accept-Encoding", "identity")
             setRequestProperty("Accept-Language", "en-US,en;q=0.9")
-            setRequestProperty("User-Agent", WEB_USER_AGENT)
+            setRequestProperty("User-Agent", UserAgents.browser)
         }
         return try {
             val status = connection.responseCode
@@ -316,8 +316,6 @@ object YoutubeChannelClient {
 
     private const val MAX_PAGE_CHARS = 2_000_000
     private const val MAX_FEED_CHARS = 1_000_000
-    private const val WEB_USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36"
 }
 
 object YoutubeSourcePolicy {

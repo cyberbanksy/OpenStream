@@ -38,10 +38,19 @@ export function ConnectionDialog() {
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setState("checking");
+    // Open the authorization window synchronously, inside the submit gesture,
+    // so the browser does not popup-block it after the gateway call resolves.
+    const authWindow = kind === "google-drive" ? window.open("", "_blank") : null;
+    if (authWindow) authWindow.opener = null;
     try {
       const result = await connectThroughGateway({ kind, baseUrl, credential, username, allowPrivateNetwork });
       const connection: ConnectionSummary = result.connection;
-      if (result.authorizationUrl) window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+      if (result.authorizationUrl) {
+        if (authWindow) authWindow.location.href = result.authorizationUrl;
+        else window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+      } else {
+        authWindow?.close();
+      }
       upsertConnection(connection);
       notify({
         tone: connection.state === "connected" ? "success" : "neutral",
@@ -51,6 +60,7 @@ export function ConnectionDialog() {
       setCredential("");
       closeConnectionDialog();
     } catch (error) {
+      authWindow?.close();
       notify({ tone: "warning", title: `Could not connect ${selected.label}`, detail: error instanceof Error ? error.message : "Connection failed." });
     } finally {
       setState("idle");

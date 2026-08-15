@@ -1,9 +1,11 @@
 package com.orgista.openstream.arr
 
+import com.orgista.openstream.data.UserAgents
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.net.URL
@@ -50,7 +52,7 @@ object ArrClient {
         connection.requestMethod = method
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("X-Api-Key", apiKey)
-        connection.setRequestProperty("User-Agent", "OpenStream/0.1 ARR")
+        connection.setRequestProperty("User-Agent", UserAgents.arr)
         if (body != null) {
             val bytes = body.toByteArray(StandardCharsets.UTF_8)
             connection.doOutput = true
@@ -80,7 +82,11 @@ object ArrClient {
             append(uri.rawPath.ifBlank { "/" })
             uri.rawQuery?.let { append('?').append(it) }
         }
-        return Socket(uri.host, port).use { socket ->
+        // Socket(host, port) blocks on the OS connect timeout (~2 min on an
+        // unroutable IP); connect() with an explicit deadline matches the HTTPS
+        // path's 6s budget. soTimeout still bounds each subsequent read.
+        return Socket().use { socket ->
+            socket.connect(InetSocketAddress(uri.host, port), 6_000)
             socket.soTimeout = 15_000
             val bodyBytes = body?.toByteArray(StandardCharsets.UTF_8)
             val headers = buildString {
@@ -88,7 +94,7 @@ object ArrClient {
                 append("Host: ${uri.host}:$port\r\n")
                 append("Accept: application/json\r\n")
                 append("X-Api-Key: $apiKey\r\n")
-                append("User-Agent: OpenStream/0.1 ARR\r\n")
+                append("User-Agent: ${UserAgents.arr}\r\n")
                 if (bodyBytes != null) {
                     append("Content-Type: application/json; charset=utf-8\r\n")
                     append("Content-Length: ${bodyBytes.size}\r\n")
@@ -109,30 +115,68 @@ object ArrClient {
                 if (count < 0) break
                 raw.write(buffer, 0, count)
             }
-            val response = raw.toString(StandardCharsets.UTF_8.name())
-            val headEnd = response.indexOf("\r\n\r\n")
+            // Keep the response as raw bytes: the header line is ASCII, but the
+            // body may contain multi-byte UTF-8, and chunk sizes count BYTES.
+            // Decoding to String before de-framing would misalign every chunk
+            // boundary that follows a non-ASCII byte and corrupt the JSON.
+            val responseBytes = raw.toByteArray()
+            val headEnd = indexOfCrlfCrlf(responseBytes)
             if (headEnd < 0) throw IOException("ARR returned an invalid response.")
-            val status = response.lineSequence().firstOrNull()?.split(' ')?.getOrNull(1)?.toIntOrNull()
+            val headerText = String(responseBytes, 0, headEnd, StandardCharsets.US_ASCII)
+            val status = headerText.lineSequence().firstOrNull()?.split(' ')?.getOrNull(1)?.toIntOrNull()
                 ?: throw IOException("ARR returned an invalid status.")
             if (status !in 200..299) throw IOException("${method.lowercase().replaceFirstChar(Char::uppercase)} request returned HTTP $status.")
-            decodeHttpBody(response.substring(0, headEnd), response.substring(headEnd + 4))
+            decodeHttpBody(headerText, responseBytes, headEnd + 4)
         }
     }
 
-    private fun decodeHttpBody(headers: String, body: String): String {
-        if (!headers.contains("transfer-encoding: chunked", ignoreCase = true)) return body
-        val result = StringBuilder()
-        var cursor = 0
-        while (cursor < body.length) {
-            val lineEnd = body.indexOf("\r\n", cursor)
-            if (lineEnd < 0) break
-            val size = body.substring(cursor, lineEnd).substringBefore(';').trim().toIntOrNull(16) ?: break
-            if (size == 0) break
-            val start = lineEnd + 2
-            val end = (start + size).coerceAtMost(body.length)
-            result.append(body, start, end)
-            cursor = end + 2
+    /**
+     * De-frames the response body on the raw byte array using byte offsets,
+     * then charset-decodes the assembled bytes. Chunk sizes are byte counts, so
+     * all framing arithmetic must happen before UTF-8 decoding.
+     */
+    private fun decodeHttpBody(headers: String, response: ByteArray, bodyStart: Int): String {
+        if (!headers.contains("transfer-encoding: chunked", ignoreCase = true)) {
+            return String(response, bodyStart, response.size - bodyStart, StandardCharsets.UTF_8)
         }
-        return result.toString()
+        val assembled = ByteArrayOutputStream()
+        var cursor = bodyStart
+        while (cursor < response.size) {
+            val lineEnd = indexOfCrlf(response, cursor)
+            if (lineEnd < 0) break
+            val sizeText = String(response, cursor, lineEnd - cursor, StandardCharsets.US_ASCII)
+                .substringBefore(';').trim()
+            val size = sizeText.toIntOrNull(16) ?: break
+            if (size == 0) break
+            val chunkStart = lineEnd + 2
+            val chunkEnd = (chunkStart + size).coerceAtMost(response.size)
+            assembled.write(response, chunkStart, chunkEnd - chunkStart)
+            cursor = chunkEnd + 2
+        }
+        return assembled.toString(StandardCharsets.UTF_8.name())
+    }
+
+    /** Index of the CRLFCRLF header/body separator, or -1 if absent. */
+    private fun indexOfCrlfCrlf(bytes: ByteArray): Int {
+        val cr = '\r'.code.toByte()
+        val lf = '\n'.code.toByte()
+        var i = 0
+        while (i <= bytes.size - 4) {
+            if (bytes[i] == cr && bytes[i + 1] == lf && bytes[i + 2] == cr && bytes[i + 3] == lf) return i
+            i++
+        }
+        return -1
+    }
+
+    /** Index of the next CRLF at or after [from], or -1 if absent. */
+    private fun indexOfCrlf(bytes: ByteArray, from: Int): Int {
+        val cr = '\r'.code.toByte()
+        val lf = '\n'.code.toByte()
+        var i = from
+        while (i < bytes.size - 1) {
+            if (bytes[i] == cr && bytes[i + 1] == lf) return i
+            i++
+        }
+        return -1
     }
 }

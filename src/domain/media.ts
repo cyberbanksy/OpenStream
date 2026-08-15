@@ -96,6 +96,10 @@ export type MediaItem = {
   artworkCell: [number, number];
   progress?: number;
   remaining?: string;
+  /** Human-readable audio track labels, present only when a source reports real metadata. */
+  audioTracks?: string[];
+  /** Human-readable subtitle track labels, present only when a source reports real metadata. */
+  subtitleTracks?: string[];
   candidates: MediaCandidate[];
 };
 

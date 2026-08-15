@@ -1,5 +1,6 @@
 package com.orgista.openstream.iptv
 
+import com.orgista.openstream.data.UserAgents
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -40,7 +41,7 @@ object IptvGuideClient {
             instanceFollowRedirects = false
             setRequestProperty("Accept", "application/xml, text/xml, application/gzip, application/octet-stream")
             setRequestProperty("Accept-Encoding", "identity")
-            setRequestProperty("User-Agent", "OpenStream/0.1")
+            setRequestProperty("User-Agent", UserAgents.product)
         }
         try {
             val status = connection.responseCode

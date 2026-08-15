@@ -117,7 +117,7 @@ object StremioClient {
         connection.readTimeout = 15_000
         connection.instanceFollowRedirects = true
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "OpenStream/0.1")
+        connection.setRequestProperty("User-Agent", UserAgents.product)
         try {
             val code = connection.responseCode
             if (code !in 200..299) throw AddonHttpException(code)
@@ -487,12 +487,15 @@ object StremioClient {
         return type to id.take(160)
     }
 
-    private fun subtitleMimeType(url: String): String = when {
-        URI(url).path.orEmpty().lowercase().endsWith(".vtt") -> "text/vtt"
-        URI(url).path.orEmpty().lowercase().endsWith(".ass") ||
-            URI(url).path.orEmpty().lowercase().endsWith(".ssa") -> "text/x-ssa"
-        URI(url).path.orEmpty().lowercase().endsWith(".ttml") -> "application/ttml+xml"
-        else -> "application/x-subrip"
+    private fun subtitleMimeType(url: String): String {
+        val path = runCatching { URI(url.trim()).path }.getOrNull()?.lowercase()
+            ?: url.trim().substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".vtt") -> "text/vtt"
+            path.endsWith(".ass") || path.endsWith(".ssa") -> "text/x-ssa"
+            path.endsWith(".ttml") -> "application/ttml+xml"
+            else -> "application/x-subrip"
+        }
     }
 
     private fun pathSegment(value: String): String =

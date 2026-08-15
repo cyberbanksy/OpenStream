@@ -26,8 +26,23 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "WEB_XR_URL", "\"http://127.0.0.1:5173/xr/viewer\"")
+        // Cloudflare's public download endpoint for the pre-playback speed probe;
+        // host-overridable (or blankable to disable) without a code change.
+        buildConfigField("String", "SPEED_TEST_URL", "\"https://speed.cloudflare.com/__down\"")
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            // Local Vite dev server for the standards-based WebXR viewer.
+            buildConfigField("String", "WEB_XR_URL", "\"http://127.0.0.1:5173/xr/viewer\"")
+        }
+        getByName("release") {
+            // TODO: set the production WebXR viewer URL before shipping a release
+            // build. Empty here means WebXrBackend disables the immersive launch
+            // and playback falls back to the flat player (no localhost loopback).
+            buildConfigField("String", "WEB_XR_URL", "\"\"")
+        }
     }
 
     sourceSets {

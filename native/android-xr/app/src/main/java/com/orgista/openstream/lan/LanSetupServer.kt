@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class LanSetupSession(val url: String, val expiresAtMillis: Long)
+data class LanSetupSession(val url: String, val expiresAtMillis: Long, val token: String = "")
 
 object LanSetupPresentation {
     /** The QR carries the complete short-lived setup URL; no manual code is required. */
@@ -56,9 +56,11 @@ class LanSetupServer(
                 .getOrElse { bind(InetSocketAddress("0.0.0.0", 0)) }
         }
         val expires = System.currentTimeMillis() + durationMillis
+        val token = LanSetupProtocol.generateSessionToken()
         val session = LanSetupSession(
-            url = "http://${address.hostAddress}:${server.localPort}/openstream",
+            url = "http://${address.hostAddress}:${server.localPort}/openstream?token=$token",
             expiresAtMillis = expires,
+            token = token,
         )
         socket = server
         running.set(true)
@@ -115,8 +117,18 @@ class LanSetupServer(
         val reader = client.getInputStream().bufferedReader(StandardCharsets.UTF_8)
         val requestLine = reader.readLine()?.take(2_048).orEmpty()
         val parts = requestLine.split(' ')
+        if (parts.size < 2) {
+            respond(client, 400, "Bad Request", "Malformed request line.")
+            return
+        }
+        val rawTarget = parts[1]
+        val rawPath = rawTarget.substringBefore('?')
+        val targetQuery = rawTarget.substringAfter('?', "")
+        val queryParams = LanSetupProtocol.parseForm(targetQuery)
+        val queryToken = queryParams["token"]
+
         val expectedPath = URI.create(session.url).rawPath
-        if (parts.size < 2 || (parts[1] != expectedPath && parts[1] != "/")) {
+        if (rawPath != expectedPath && rawPath != "/") {
             respond(client, 404, "Not Found", "Not found.")
             return
         }
@@ -131,8 +143,36 @@ class LanSetupServer(
             val separator = line.indexOf(':')
             if (separator > 0) headers[line.substring(0, separator).lowercase()] = line.substring(separator + 1).trim()
         }
+
+        // CSRF protection: Origin and Referer validation
+        val origin = headers["origin"]
+        val referer = headers["referer"]
+        val serverHost = URI.create(session.url).host
+        val serverPort = socket?.localPort ?: DEFAULT_PORT
+
+        if (origin != null && !LanSetupProtocol.isValidOrigin(origin, serverHost, serverPort)) {
+            respond(client, 403, "Forbidden", "Cross-origin request rejected.")
+            return
+        }
+        if (referer != null && !LanSetupProtocol.isValidOrigin(referer, serverHost, serverPort)) {
+            respond(client, 403, "Forbidden", "Cross-origin request rejected.")
+            return
+        }
+
         when (parts[0]) {
-            "GET" -> respond(client, 200, "OK", setupPage(), "text/html; charset=utf-8")
+            "GET" -> {
+                val cookieHeaders = if (session.token.isNotBlank()) {
+                    listOf("Set-Cookie: openstream_token=${session.token}; SameSite=Strict; HttpOnly; Path=/")
+                } else emptyList()
+                respond(
+                    client = client,
+                    code = 200,
+                    status = "OK",
+                    body = setupPage(token = session.token),
+                    contentType = "text/html; charset=utf-8",
+                    extraHeaders = cookieHeaders,
+                )
+            }
             "POST" -> {
                 val length = headers["content-length"]?.toIntOrNull() ?: 0
                 if (length !in 1..MAX_BODY_CHARS) {
@@ -147,10 +187,26 @@ class LanSetupServer(
                     read += count
                 }
                 val form = LanSetupProtocol.parseForm(String(buffer, 0, read))
+
+                // CSRF Session token validation
+                if (session.token.isNotBlank()) {
+                    val cookieToken = headers["cookie"]?.split(';')?.mapNotNull { c ->
+                        val sep = c.indexOf('=')
+                        if (sep > 0 && c.substring(0, sep).trim().equals("openstream_token", ignoreCase = true)) {
+                            c.substring(sep + 1).trim()
+                        } else null
+                    }?.firstOrNull()
+                    val submittedToken = form["token"] ?: queryToken ?: headers["x-setup-token"] ?: cookieToken
+                    if (submittedToken != session.token) {
+                        respond(client, 403, "Forbidden", "Invalid or missing session token.")
+                        return
+                    }
+                }
+
                 val manifest = form["manifest"].orEmpty().trim()
                 val urlError = LanSetupProtocol.manifestUrlError(manifest)
                 if (urlError != null) {
-                    respond(client, 400, "Bad Request", setupPage(urlError, manifest), "text/html; charset=utf-8")
+                    respond(client, 400, "Bad Request", setupPage(urlError, manifest, session.token), "text/html; charset=utf-8")
                     return
                 }
                 val result = runCatching { addManifest(manifest) }
@@ -165,7 +221,7 @@ class LanSetupServer(
                             client,
                             400,
                             "Bad Request",
-                            setupPage(error.message ?: "The add-on could not be validated.", manifest),
+                            setupPage(error.message ?: "The add-on could not be validated.", manifest, session.token),
                             "text/html; charset=utf-8",
                         )
                     },
@@ -175,7 +231,14 @@ class LanSetupServer(
         }
     }
 
-    private fun respond(client: Socket, code: Int, status: String, body: String, contentType: String = "text/plain; charset=utf-8") {
+    private fun respond(
+        client: Socket,
+        code: Int,
+        status: String,
+        body: String,
+        contentType: String = "text/plain; charset=utf-8",
+        extraHeaders: List<String> = emptyList(),
+    ) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
         client.getOutputStream().buffered().use { output ->
             output.write("HTTP/1.1 $code $status\r\n".toByteArray())
@@ -183,20 +246,25 @@ class LanSetupServer(
             output.write("Content-Length: ${bytes.size}\r\n".toByteArray())
             output.write("Cache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n".toByteArray())
             output.write("Referrer-Policy: no-referrer\r\n".toByteArray())
-            output.write("Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n\r\n".toByteArray())
+            output.write("Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n".toByteArray())
+            extraHeaders.forEach { header ->
+                output.write("$header\r\n".toByteArray())
+            }
+            output.write("\r\n".toByteArray())
             output.write(bytes)
         }
     }
 
-    private fun setupPage(error: String? = null, manifest: String = ""): String {
+    private fun setupPage(error: String? = null, manifest: String = "", token: String = ""): String {
         val feedback = error?.let {
             """<div id="server-error" class="feedback error" role="alert"><strong>Couldn’t add this URL</strong><span>${html(it)}</span></div>"""
         }.orEmpty()
+        val tokenField = if (token.isNotBlank()) """<input type="hidden" name="token" value="${html(token)}">""" else ""
         return """
             <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><title>OpenStream setup</title>
             <style>$BASE_STYLES</style></head>
             <body><div class="page">$BRAND_HEADER<main class="card"><p class="eyebrow">WEB MANAGEMENT</p><h1>Add a source</h1><p class="intro">Paste the secure manifest address supplied by your Stremio add-on.</p>
-            <form id="setup-form" method="post" autocomplete="off" novalidate><label for="manifest">Manifest URL</label><input id="manifest" name="manifest" type="url" required inputmode="url" placeholder="https://addon.example/manifest.json" value="${html(manifest)}" autocapitalize="none" autocomplete="url" spellcheck="false" aria-describedby="example status"><p id="example" class="example">Example: https://addon.example/manifest.json<br>You can also paste the add-on’s HTTPS base URL.</p>$feedback<div class="actions"><button id="submit" type="submit">Add source</button><p id="status" class="status" role="status" aria-live="polite"></p></div></form></main></div>
+            <form id="setup-form" method="post" autocomplete="off" novalidate>$tokenField<label for="manifest">Manifest URL</label><input id="manifest" name="manifest" type="url" required inputmode="url" placeholder="https://addon.example/manifest.json" value="${html(manifest)}" autocapitalize="none" autocomplete="url" spellcheck="false" aria-describedby="example status"><p id="example" class="example">Example: https://addon.example/manifest.json<br>You can also paste the add-on’s HTTPS base URL.</p>$feedback<div class="actions"><button id="submit" type="submit">Add source</button><p id="status" class="status" role="status" aria-live="polite"></p></div></form></main></div>
             <script>(function(){var form=document.getElementById('setup-form'),input=document.getElementById('manifest'),button=document.getElementById('submit'),status=document.getElementById('status'),serverError=document.getElementById('server-error');function issue(raw){var value=raw.trim();if(!value)return'Enter the add-on manifest URL.';var match=value.match(/^([a-z][a-z0-9+.-]*):\/\//i);if(!match)return'Add https:// at the beginning. Example: https://addon.example/manifest.json';var scheme=match[1].toLowerCase();if(scheme==='http')return"HTTP links are not supported. Use the add-on's HTTPS manifest URL.";if(scheme!=='https')return scheme+':// links are not supported here. Paste the add-on\'s HTTPS manifest URL.';var url;try{url=new URL(value)}catch(e){return'This URL is not valid. Example: https://addon.example/manifest.json'}if(!url.hostname)return'This URL is missing an add-on host. Example: https://addon.example/manifest.json';if(url.username||url.password)return'URLs containing a username or password are not supported.';if(url.search)return'URL query options are not supported. Paste the complete HTTPS manifest URL supplied by the add-on.';if(url.hash)return'URL fragments are not supported. Remove everything after # and try again.';var parts=url.pathname.split('/').filter(Boolean),last=parts.length?parts[parts.length-1]:'';if(/\.json$/i.test(last)&&last.toLowerCase()!=='manifest.json')return'This URL points to '+last+'. Paste a manifest.json URL or the add-on\'s base URL.';return''}function show(message){status.textContent=message;status.className='status error';input.setAttribute('aria-invalid','true');input.focus()}input.addEventListener('input',function(){input.removeAttribute('aria-invalid');status.textContent='';status.className='status';if(serverError)serverError.hidden=true});form.addEventListener('submit',function(event){var message=issue(input.value);if(message){event.preventDefault();show(message);return}button.disabled=true;button.textContent='Checking add-on…';status.textContent='Checking the manifest and connecting…';status.className='status checking'});})();</script></body></html>
         """.trimIndent()
     }
