@@ -1,6 +1,6 @@
 import { access, mkdir } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import axe from "axe-core";
 import { chromium } from "playwright-core";
 
@@ -18,7 +18,7 @@ const screens = [
   "details",
   "search",
 ];
-const outputDir = fileURLToPath(new URL("../design/qa-automated/", import.meta.url));
+const outputDir = process.env.OPENSTREAM_QA_DIR ?? join(tmpdir(), "openstream-qa");
 
 if (!executablePath) {
   throw new Error(

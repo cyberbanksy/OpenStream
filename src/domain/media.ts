@@ -94,9 +94,12 @@ export type MediaItem = {
   rating: string;
   runtimeMinutes: number;
   artworkCell: [number, number];
-  heroAsset?: "northstar" | "signal";
   progress?: number;
   remaining?: string;
+  /** Human-readable audio track labels, present only when a source reports real metadata. */
+  audioTracks?: string[];
+  /** Human-readable subtitle track labels, present only when a source reports real metadata. */
+  subtitleTracks?: string[];
   candidates: MediaCandidate[];
 };
 

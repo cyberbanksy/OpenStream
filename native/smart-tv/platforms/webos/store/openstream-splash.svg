@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-labelledby="title">
+  <title id="title">OpenStream splash screen</title>
+  <rect width="1920" height="1080" fill="#070909" />
+  <g transform="translate(770 432)">
+    <g fill="none" stroke="#f5f8f9" stroke-width="20" stroke-linecap="round">
+      <path d="M0 41h64" />
+      <path d="M0 68h90" />
+      <path d="M0 95h64" />
+    </g>
+    <text x="132" y="88" fill="#f5f8f9" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700" letter-spacing="-3">OpenStream</text>
+  </g>
+</svg>

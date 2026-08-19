@@ -11,8 +11,6 @@ export type XrViewerOptions = {
   rejectedLegacySource: boolean;
 };
 
-const defaultSource = "/demo/openstream-demo.mp4";
-
 export function parseXrViewerOptions(location: Pick<Location, "href" | "origin">): XrViewerOptions {
   const url = new URL(location.href);
   const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
@@ -20,24 +18,10 @@ export function parseXrViewerOptions(location: Pick<Location, "href" | "origin">
     projection: parseProjection(url.searchParams.get("projection")),
     stereo: parseStereo(url.searchParams.get("stereo")),
     dynamicRange: cleanLabel(url.searchParams.get("range"), "runtime check"),
-    source: resolveMediaSource(null, location.origin),
+    source: "",
     handoffId: parseHandoffId(fragment.get("handoff")),
     rejectedLegacySource: url.searchParams.has("src"),
   };
-}
-
-export function resolveMediaSource(raw: string | null, origin: string): string {
-  const source = raw?.trim() || defaultSource;
-  const url = new URL(source, origin);
-  const sameOrigin = url.origin === origin;
-  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
-  if (!sameOrigin && url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw new Error("Media URLs must use HTTPS or a loopback development address.");
-  }
-  if (url.username || url.password) {
-    throw new Error("Credentials are not accepted in media URLs.");
-  }
-  return url.href;
 }
 
 export function cropUvForEye(

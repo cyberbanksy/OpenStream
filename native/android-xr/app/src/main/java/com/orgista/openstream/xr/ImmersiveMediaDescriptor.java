@@ -12,6 +12,7 @@ public record ImmersiveMediaDescriptor(
         FLAT,
         EQUIRECTANGULAR_180,
         EQUIRECTANGULAR_360,
+        CUBEMAP_360,
         FISHEYE_180,
         WIDE_FIELD_OF_VIEW
     }

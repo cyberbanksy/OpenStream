@@ -1,24 +1,15 @@
 import {
   Bookmark,
+  CircleUserRound,
   Clock3,
   Compass,
-  HardDrive,
+  Database,
   Play,
   Search,
   Settings,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../../app/AppContext";
-import northstarCard from "../../assets/catalog/art-00.png";
-import lastSignalCard from "../../assets/catalog/art-01.png";
-import solarDriftCard from "../../assets/catalog/art-02.png";
-import echoesOfMarsCard from "../../assets/catalog/art-03.png";
-import frontierOutpostCard from "../../assets/catalog/art-04.png";
-import redlineCard from "../../assets/catalog/art-05.png";
-import lastSignalCityHero from "../../assets/last-signal-city-hero.png";
-import lastSignalCityBackdrop from "../../assets/last-signal-city-hero-v2.png";
-import northstarHero from "../../assets/northstar-hero.png";
-import profileAvatar from "../../assets/profile-avatar.png";
 import { Artwork } from "../../components/Artwork";
 import { Brand } from "../../components/Brand";
 import {
@@ -27,24 +18,7 @@ import {
   type MediaCandidate,
   type MediaItem,
 } from "../../domain/media";
-
-const featuredIds = [
-  "northstar",
-  "last-signal",
-  "solar-drift",
-  "echoes-of-mars",
-  "frontier-outpost",
-  "redline",
-];
-
-const focusArtwork: Record<string, string> = {
-  "northstar": northstarCard,
-  "last-signal": lastSignalCard,
-  "solar-drift": solarDriftCard,
-  "echoes-of-mars": echoesOfMarsCard,
-  "frontier-outpost": frontierOutpostCard,
-  "redline": redlineCard,
-};
+import { isInWatchlist, toggleWatchlist } from "./watchlist";
 
 function formatRuntime(minutes: number) {
   const hours = Math.floor(minutes / 60);
@@ -79,16 +53,7 @@ function CandidateSummary({ candidate }: { candidate: MediaCandidate }) {
 }
 
 function HeroArtwork({ item }: { item: MediaItem }) {
-  if (item.id === "last-signal") {
-    return <div className="cinema-hero-art cinema-hero-signal" style={{ backgroundImage: `url(${lastSignalCityBackdrop})` }} />;
-  }
-  if (item.id === "northstar") {
-    return <div className="cinema-hero-art" style={{ backgroundImage: `url(${northstarHero})` }} />;
-  }
-  if (!focusArtwork[item.id]) {
-    return <div key={item.id} className="cinema-hero-art cinema-hero-card"><Artwork cell={item.artworkCell} className="cinema-hero-sprite" /></div>;
-  }
-  return <div key={item.id} className="cinema-hero-art cinema-hero-card" style={{ backgroundImage: `url(${focusArtwork[item.id]})` }} />;
+  return <div key={item.id} className="cinema-hero-art cinema-hero-card"><Artwork cell={item.artworkCell} className="cinema-hero-sprite" /></div>;
 }
 
 function FocusCard({
@@ -120,13 +85,7 @@ function FocusCard({
       onFocus={() => onActivate(index)}
       onMouseEnter={() => onActivate(index)}
     >
-      {active && item.id === "last-signal" ? (
-        <span className="focus-card-art generated" style={{ backgroundImage: `url(${lastSignalCityHero})` }} />
-      ) : focusArtwork[item.id] ? (
-        <img className="focus-card-art" src={focusArtwork[item.id]} alt="" />
-      ) : (
-        <span className="focus-card-art"><Artwork cell={item.artworkCell} className="focus-card-sprite" /></span>
-      )}
+      <span className="focus-card-art"><Artwork cell={item.artworkCell} className="focus-card-sprite" /></span>
       <span className="focus-card-shade" />
       {active ? (
         <span className="focus-card-feature">
@@ -150,16 +109,15 @@ function FocusCard({
 
 export function DiscoverScreen() {
   const { catalog, beginPlayback, navigate, notify, kidsMode } = useApp();
-  const featured = useMemo(() => {
-    const preferred = featuredIds
-      .map((id) => catalog.find((item) => item.id === id))
-      .filter((item): item is MediaItem => Boolean(item));
-    const fillers = catalog.filter((item) => !preferred.includes(item));
-    return [...preferred, ...fillers].slice(0, 6);
-  }, [catalog]);
-  const initialIndex = Math.max(0, featured.findIndex((item) => item.id === "last-signal"));
-  const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const featured = useMemo(() => catalog.slice(0, 6), [catalog]);
+  const [activeIndex, setActiveIndex] = useState(0);
   const selected = featured[Math.min(activeIndex, featured.length - 1)] ?? featured[0];
+  const selectedId = selected?.id;
+  const [watchlisted, setWatchlisted] = useState(false);
+
+  useEffect(() => {
+    setWatchlisted(selectedId ? isInWatchlist(selectedId) : false);
+  }, [selectedId]);
 
   if (!selected) {
     return (
@@ -168,14 +126,15 @@ export function DiscoverScreen() {
         <section className="cinema-empty">
           <Brand />
           <h1>Nothing to show yet</h1>
-          <p>No titles match this device's content settings. Add age-appropriate media to a connected library to fill Discover.</p>
+          <p>Add a library, add-on, or YouTube channel in Sources to fill Discover.</p>
+          <button className="action-button primary" data-focusable onClick={() => navigate("connections")}>Open Sources</button>
         </section>
       </main>
     );
   }
 
   const candidate = selected.candidates[0];
-  const audio = spatialAudioLabel(candidate);
+  const audio = candidate ? spatialAudioLabel(candidate) : undefined;
   const hasLeadingArticle = selected.title.toLowerCase().startsWith("the ");
 
   return (
@@ -201,8 +160,8 @@ export function DiscoverScreen() {
           <span>{selected.year}</span>
           <span>{selected.rating}</span>
           <span>{formatRuntime(selected.runtimeMinutes)}</span>
-          <span>{formatResolution(candidate.format)}</span>
-          <span>{dynamicRangeLabel[candidate.format.dynamicRange]}</span>
+          {candidate ? <span>{formatResolution(candidate.format)}</span> : null}
+          {candidate ? <span>{dynamicRangeLabel[candidate.format.dynamicRange]}</span> : null}
           {audio ? <span>{audio}</span> : null}
         </div>
       </section>
@@ -216,7 +175,7 @@ export function DiscoverScreen() {
               index={index}
               activeIndex={activeIndex}
               onActivate={setActiveIndex}
-              onPlay={beginPlayback}
+              onPlay={(item) => item.candidates.length > 0 && beginPlayback(item)}
             />
           ))}
         </div>
@@ -234,12 +193,12 @@ export function DiscoverScreen() {
         </div>
       </section>
 
-      <div className="cinema-route" aria-label="Selected playback route">
+      {candidate ? <div className="cinema-route" aria-label="Selected playback route">
         <span className="route-health" />
         <span>Playing from {candidate.sourceName}</span>
         <b />
         <CandidateSummary candidate={candidate} />
-      </div>
+      </div> : null}
 
       <nav className="cinema-context-nav" aria-label="OpenStream destinations">
         <button data-focusable onClick={() => navigate("library")}>
@@ -248,8 +207,8 @@ export function DiscoverScreen() {
         </button>
         {kidsMode ? null : (
           <button data-focusable onClick={() => navigate("connections")}>
-            <span className="context-icon"><HardDrive size={24} /></span>
-            <span><strong>From Atlas NAS</strong><small>1.2 TB available</small></span>
+            <span className="context-icon"><Database size={24} /></span>
+            <span><strong>Your Sources</strong><small>{catalog.length} available titles</small></span>
           </button>
         )}
         <button data-focusable onClick={() => navigate("discover")}>
@@ -262,15 +221,24 @@ export function DiscoverScreen() {
         <button data-focusable aria-label="Search" title="Search" onClick={() => navigate("search")}><Search size={25} /></button>
         <button
           data-focusable
-          aria-label="Add to watchlist"
-          title="Add to watchlist"
-          onClick={() => notify({ tone: "success", title: "Added to watchlist", detail: selected.title })}
+          aria-label={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+          title={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+          aria-pressed={watchlisted}
+          onClick={() => {
+            const added = toggleWatchlist(selected.id);
+            setWatchlisted(added);
+            notify({
+              tone: added ? "success" : "neutral",
+              title: added ? "Added to watchlist" : "Removed from watchlist",
+              detail: selected.title,
+            });
+          }}
         >
-          <Bookmark size={24} />
+          <Bookmark size={24} fill={watchlisted ? "currentColor" : "none"} />
         </button>
         <button data-focusable aria-label="Settings" title="Settings" onClick={() => navigate("settings")}><Settings size={25} /></button>
         <button className="profile-control" data-focusable aria-label="Profile and activity" title="Profile" onClick={() => navigate("activity")}>
-          <img src={profileAvatar} alt="" />
+          <CircleUserRound size={26} />
         </button>
       </nav>
     </main>

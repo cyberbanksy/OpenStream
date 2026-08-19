@@ -12,8 +12,8 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Persists the last indexed library so the real catalog shows instantly on
- * launch instead of the demo placeholder while a background re-scan runs.
+ * Persists the last indexed library so its real catalog shows instantly while
+ * a background re-scan runs.
  * Only the fields needed to browse and play are cached; rich detail metadata
  * is re-fetched lazily when a title opens.
  */
@@ -64,8 +64,19 @@ object LibraryCache {
         .put("runtimeMinutes", runtimeMinutes)
         .putOpt("posterUrl", posterUrl)
         .putOpt("backdropUrl", backdropUrl)
+        .putOpt("trailerYoutubeKey", trailerYoutubeKey)
         .putOpt("imdbId", imdbId)
         .putOpt("tmdbId", tmdbId)
+        .put("genres", JSONArray(genres))
+        .put("cast", JSONArray(cast))
+        .putOpt("director", director)
+        .putOpt("tagline", tagline)
+        .putOpt("ratings", ratings?.let {
+            JSONObject()
+                .putOpt("imdb", it.imdb)
+                .putOpt("rottenTomatoes", it.rottenTomatoes)
+                .putOpt("metacritic", it.metacritic)
+        })
         .put("candidates", JSONArray(candidates.map { it.toJson() }))
         .put("episodes", JSONArray(episodes.map { it.toJson() }))
 
@@ -88,14 +99,29 @@ object LibraryCache {
         runtimeMinutes = optInt("runtimeMinutes"),
         posterUrl = optString("posterUrl").takeIf { it.isNotBlank() },
         backdropUrl = optString("backdropUrl").takeIf { it.isNotBlank() },
+        trailerYoutubeKey = optString("trailerYoutubeKey").takeIf { it.isNotBlank() },
         imdbId = optString("imdbId").takeIf { it.isNotBlank() },
         tmdbId = if (has("tmdbId") && !isNull("tmdbId")) optInt("tmdbId") else null,
+        genres = optJSONArray("genres").toStrings(),
+        cast = optJSONArray("cast").toStrings(),
+        director = optString("director").takeIf { it.isNotBlank() },
+        tagline = optString("tagline").takeIf { it.isNotBlank() },
+        ratings = optJSONObject("ratings")?.let { ratings ->
+            com.orgista.openstream.data.TitleRatings(
+                imdb = ratings.optString("imdb").takeIf { it.isNotBlank() },
+                rottenTomatoes = ratings.optString("rottenTomatoes").takeIf { it.isNotBlank() },
+                metacritic = ratings.optString("metacritic").takeIf { it.isNotBlank() },
+            )
+        },
         candidates = optJSONArray("candidates").toCandidates(),
         episodes = optJSONArray("episodes").toItems(),
     )
 
     private fun JSONArray?.toCandidates(): List<MediaCandidate> =
         if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it)?.toCandidate() }
+
+    private fun JSONArray?.toStrings(): List<String> =
+        if (this == null) emptyList() else (0 until length()).mapNotNull { optString(it).takeIf(String::isNotBlank) }
 
     private fun JSONObject.toCandidate(): MediaCandidate = MediaCandidate(
         id = optString("id"),

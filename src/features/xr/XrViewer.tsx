@@ -31,9 +31,12 @@ export function XrViewer() {
   const [dynamicRange, setDynamicRange] = useState(initialOptions.dynamicRange);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  // Mute is applied to the live video element; keeping it out of the scene
+  // effect's dependencies means toggling it never rebuilds the WebGL scene.
+  const isMutedRef = useRef(true);
   const [xrSupported, setXrSupported] = useState(false);
   const [sessionActive, setSessionActive] = useState(false);
-  const [status, setStatus] = useState(initialOptions.handoffId ? "Opening secure media handoff" : "Preparing immersive playback");
+  const [status, setStatus] = useState(initialOptions.handoffId ? "Opening secure media handoff" : "Choose a video to begin");
   const [error, setError] = useState<string | null>(initialOptions.rejectedLegacySource
     ? "Media URLs are no longer accepted in viewer links. Create a secure XR handoff instead."
     : null);
@@ -91,10 +94,10 @@ export function XrViewer() {
     mount.appendChild(renderer.domElement);
 
     const video = document.createElement("video");
-    video.src = source;
+    if (source) video.src = source;
     video.crossOrigin = "anonymous";
     video.loop = true;
-    video.muted = isMuted;
+    video.muted = isMutedRef.current;
     video.playsInline = true;
     video.preload = "auto";
     const texture = new THREE.VideoTexture(video);
@@ -192,10 +195,12 @@ export function XrViewer() {
     renderer.setAnimationLoop(() => renderer.render(scene, camera));
     runtimeRef.current = { renderer, video, camera, resetView };
 
-    video.play().catch(() => {
-      setStatus("Ready to play");
-      setIsPlaying(false);
-    });
+    if (source) {
+      video.play().catch(() => {
+        setStatus("Ready to play");
+        setIsPlaying(false);
+      });
+    }
 
     return () => {
       renderer.setAnimationLoop(null);
@@ -223,7 +228,7 @@ export function XrViewer() {
       renderer.domElement.remove();
       if (runtimeRef.current?.renderer === renderer) runtimeRef.current = null;
     };
-  }, [source, projection, stereo, isMuted]);
+  }, [source, projection, stereo]);
 
   const togglePlayback = async () => {
     const video = runtimeRef.current?.video;
@@ -239,6 +244,7 @@ export function XrViewer() {
   const toggleMute = () => {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
+    isMutedRef.current = nextMuted;
     if (runtimeRef.current) runtimeRef.current.video.muted = nextMuted;
   };
 

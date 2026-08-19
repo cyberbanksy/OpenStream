@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <meta name="theme-color" content="#070909" />
+    <title>OpenStream · Cyberbanksy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app" data-section="discover">
+      <header class="topbar">
+        <div class="brand" aria-label="OpenStream">
+          <svg class="brand-mark" viewBox="0 0 96 96" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-width="12.5" stroke-linecap="round">
+              <path d="M22 31h40" />
+              <path d="M22 48.5h56" />
+              <path d="M22 66h40" />
+            </g>
+          </svg>
+          <span class="wordmark">OpenStream</span>
+        </div>
+
+        <nav class="primary-nav" aria-label="Primary">
+          <button class="nav-item focusable selected" type="button" data-section="discover" aria-current="page">Discover</button>
+          <button class="nav-item focusable" type="button" data-section="library">Library</button>
+          <button class="nav-item focusable" type="button" data-section="live">Live</button>
+          <button class="nav-item focusable" type="button" data-section="sources">Sources</button>
+        </nav>
+
+        <div class="topbar-status">
+          <span id="connection-status" class="connection-status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="connection-label">Online</span>
+          </span>
+          <span class="status-divider" aria-hidden="true"></span>
+          <time id="clock" aria-label="Current time"></time>
+        </div>
+      </header>
+
+      <main id="media-view">
+        <section class="hero" aria-labelledby="hero-title">
+          <img id="hero-art" class="hero-art hidden" alt="" />
+          <div class="hero-shade" aria-hidden="true"></div>
+          <div class="hero-copy">
+            <h1 id="hero-title">Nothing to show yet</h1>
+            <div id="hero-meta" class="hero-meta" aria-label="Title details"></div>
+            <p id="hero-summary">Add a source to begin.</p>
+            <div class="hero-actions">
+              <button id="play" class="action-button primary focusable" type="button">
+                <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                <span>Play</span>
+              </button>
+              <button id="details" class="action-button focusable" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7.5v.1" /></svg>
+                <span>Details</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section id="continue-rail" class="media-rail" aria-labelledby="continue-title">
+          <h2 id="continue-title">Continue Watching</h2>
+          <div id="continue-cards" class="cards"></div>
+        </section>
+
+        <section id="server-rail" class="media-rail second-rail" aria-labelledby="server-title">
+          <h2 id="server-title">From Your Server</h2>
+          <div id="server-cards" class="cards"></div>
+        </section>
+      </main>
+
+      <main id="sources-view" class="sources-view hidden" aria-labelledby="sources-title">
+        <div class="sources-heading">
+          <p class="section-label">OpenStream connections</p>
+          <h1 id="sources-title">Sources</h1>
+          <p>Playback routes stay on your network and are supplied by your configured OpenStream host.</p>
+        </div>
+        <div id="source-list" class="source-list"></div>
+      </main>
+    </div>
+
+    <section id="player-shell" class="player-shell hidden" aria-label="Video player" aria-hidden="true">
+      <video id="player" controls playsinline preload="metadata"></video>
+      <div class="player-topbar">
+        <button id="close-player" class="player-back focusable" type="button" aria-label="Return to OpenStream">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+        <div>
+          <strong id="player-title">OpenStream</strong>
+          <span id="player-source">Configured source</span>
+        </div>
+      </div>
+      <div id="format-indicator" class="format-indicator hidden" role="status"></div>
+    </section>
+
+    <section id="details-surface" class="modal-surface hidden" aria-hidden="true">
+      <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="details-title">
+        <p id="details-kicker" class="section-label">OpenStream</p>
+        <h2 id="details-title">Title details</h2>
+        <p id="details-meta" class="dialog-meta"></p>
+        <p id="details-copy"></p>
+        <p id="details-route" class="dialog-route"></p>
+        <button id="close-details" class="action-button primary focusable" type="button">Done</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    <div id="announcer" class="visually-hidden" aria-live="polite"></div>
+
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>

@@ -18,6 +18,7 @@ public final class MediaCapabilityReport {
     private final Map<DynamicRange, SupportState> displaySupport;
     private final Map<DynamicRange, SupportState> decoderSupport;
     private final List<String> dolbyVisionCodecProfiles;
+    private final List<Integer> dolbyVisionBitstreamProfiles;
     private final boolean hevcMain10Decoder;
     private final boolean av1Main10Decoder;
 
@@ -25,6 +26,7 @@ public final class MediaCapabilityReport {
             Map<DynamicRange, SupportState> displaySupport,
             Map<DynamicRange, SupportState> decoderSupport,
             List<String> dolbyVisionCodecProfiles,
+            List<Integer> dolbyVisionBitstreamProfiles,
             boolean hevcMain10Decoder,
             boolean av1Main10Decoder
     ) {
@@ -32,6 +34,9 @@ public final class MediaCapabilityReport {
         this.decoderSupport = Collections.unmodifiableMap(new EnumMap<>(decoderSupport));
         this.dolbyVisionCodecProfiles = Collections.unmodifiableList(
                 new ArrayList<>(dolbyVisionCodecProfiles)
+        );
+        this.dolbyVisionBitstreamProfiles = Collections.unmodifiableList(
+                new ArrayList<>(dolbyVisionBitstreamProfiles)
         );
         this.hevcMain10Decoder = hevcMain10Decoder;
         this.av1Main10Decoder = av1Main10Decoder;
@@ -47,6 +52,10 @@ public final class MediaCapabilityReport {
 
     public List<String> dolbyVisionCodecProfiles() {
         return dolbyVisionCodecProfiles;
+    }
+
+    public List<Integer> dolbyVisionBitstreamProfiles() {
+        return dolbyVisionBitstreamProfiles;
     }
 
     public boolean hasHevcMain10Decoder() {

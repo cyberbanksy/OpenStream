@@ -2,7 +2,6 @@ package com.orgista.openstream.library
 
 import com.orgista.openstream.data.MediaItem
 import com.orgista.openstream.data.MediaKind
-import com.orgista.openstream.data.TitleRatings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -19,30 +18,19 @@ class MetadataLoader(tmdbKey: String, omdbKey: String) {
     val active: Boolean get() = tmdb.enabled || omdb.enabled
 
     suspend fun enrich(item: MediaItem): MediaItem = withContext(Dispatchers.IO) {
-        val details = item.tmdbId?.let {
+        val suppliedImdbId = item.imdbId ?: item.id.takeIf { it.matches(Regex("tt\\d{5,12}")) }
+        val exactMatch = suppliedImdbId?.let { id ->
+            runCatching { tmdb.findByImdbId(id, item.kind) }.getOrNull()
+        }
+        val resolvedTmdbId = item.tmdbId ?: exactMatch?.tmdbId ?: runCatching {
+            if (item.kind == MediaKind.SERIES) tmdb.searchShow(item.title)?.tmdbId
+            else tmdb.searchMovie(item.title, item.year.takeIf { it > 0 })?.tmdbId
+        }.getOrNull()
+        val details = resolvedTmdbId?.let {
             if (item.kind == MediaKind.SERIES) tmdb.showDetails(it) else tmdb.movieDetails(it)
         }
-        val imdbId = details?.imdbId ?: item.imdbId
+        val imdbId = details?.imdbId ?: suppliedImdbId
         val omdbResult = imdbId?.let { runCatching { omdb.byImdbId(it) }.getOrNull() }
-
-        val ratings = TitleRatings(
-            imdb = omdbResult?.ratings?.imdb,
-            rottenTomatoes = omdbResult?.ratings?.rottenTomatoes,
-            metacritic = omdbResult?.ratings?.metacritic,
-        ).takeIf { it.imdb != null || it.rottenTomatoes != null || it.metacritic != null }
-
-        item.copy(
-            imdbId = imdbId,
-            rating = item.rating.ifBlank { details?.certification ?: omdbResult?.rated ?: "" },
-            runtimeMinutes = if (item.runtimeMinutes > 0) item.runtimeMinutes
-            else details?.runtimeMinutes ?: omdbResult?.runtimeMinutes ?: 0,
-            genres = details?.genres?.ifEmpty { omdbResult?.genres ?: emptyList() }
-                ?: omdbResult?.genres ?: emptyList(),
-            cast = details?.cast?.ifEmpty { omdbResult?.actors ?: emptyList() }
-                ?: omdbResult?.actors ?: emptyList(),
-            director = details?.director ?: omdbResult?.director,
-            tagline = details?.tagline,
-            ratings = ratings,
-        )
+        MetadataMergePolicy.merge(item, resolvedTmdbId, details, omdbResult)
     }
 }

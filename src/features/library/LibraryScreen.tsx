@@ -11,7 +11,7 @@ export function LibraryScreen() {
   const [sort, setSort] = useState<"recent" | "title">("recent");
   const items = useMemo(() => {
     const filtered = catalog.filter((item) => {
-      if (filter === "all") return item.id !== "immersive-frontier";
+      if (filter === "all") return true;
       if (filter === "immersive") return item.candidates.some((candidate) => candidate.format.projection !== "flat");
       return item.kind === filter;
     });
@@ -21,7 +21,7 @@ export function LibraryScreen() {
   return (
     <main className="screen workspace-screen library-screen">
       <aside className="workspace-sidebar" aria-label="Library filters">
-        <div className="sidebar-heading"><FolderOpen size={18} /><span>Atlas NAS</span><small>327 items</small></div>
+        <div className="sidebar-heading"><FolderOpen size={18} /><span>Your Library</span><small>{catalog.length} items</small></div>
         {([
           ["all", Grid2X2, "All media"],
           ["movie", Film, "Movies"],
@@ -39,11 +39,6 @@ export function LibraryScreen() {
             <Icon size={20} /><span>{label}</span>
           </button>
         ))}
-        <div className="storage-summary">
-          <span>Storage</span><strong>5.4 TB of 12 TB</strong>
-          <div className="storage-meter"><span /></div>
-          <small><i />Healthy</small>
-        </div>
       </aside>
       <section className="workspace-content">
         <header className="section-header">

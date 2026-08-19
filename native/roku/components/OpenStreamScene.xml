@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component name="OpenStreamScene" extends="Scene">
+  <interface>
+    <field id="launchArgs" type="assocarray" onChange="onLaunchArgs" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/OpenStreamScene.brs" />
+
+  <children>
+    <Rectangle width="1920" height="1080" color="0x070909ff" />
+    <Label translation="[86,54]" text="OpenStream" width="420" height="58" font="font:LargeBoldSystemFont" color="0xf5f8f8ff" />
+    <Label id="network" translation="[1570,70]" text="ONLINE" width="180" height="34" horizAlign="right" font="font:SmallBoldSystemFont" color="0x62e4b2ff" />
+    <Label translation="[540,350]" text="Nothing to show yet" width="840" height="86" horizAlign="center" font="font:LargeBoldSystemFont" color="0xffffffff" />
+    <Label translation="[490,465]" text="Add libraries, add-ons, YouTube channels, and Live TV from OpenStream Sources or Web Management." width="940" height="150" horizAlign="center" wrap="true" numLines="3" font="font:MediumSystemFont" color="0xc4cdceff" />
+  </children>
+</component>

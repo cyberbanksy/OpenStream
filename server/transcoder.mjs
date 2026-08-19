@@ -2,8 +2,10 @@ import { spawn } from "node:child_process";
 
 const FFMPEG = process.env.OPENSTREAM_FFMPEG ?? "ffmpeg";
 const PROBE_TIMEOUT_MS = 8000;
+const PROBE_FAILURE_TTL_MS = 30_000;
 
 let cachedProbe;
+let cachedProbeExpiry = 0;
 
 function run(binary, args, timeoutMs) {
   return new Promise((resolve) => {
@@ -29,10 +31,14 @@ function run(binary, args, timeoutMs) {
  * within what this device can sustain in real time.
  */
 export async function probeTranscoder() {
-  if (cachedProbe) return cachedProbe;
+  // A positive detection is cached for the process lifetime; a missing or
+  // partial ffmpeg is only cached briefly so installing it mid-run is picked
+  // up on the next request without a gateway restart.
+  if (cachedProbe && (cachedProbe.available || Date.now() < cachedProbeExpiry)) return cachedProbe;
   const version = await run(FFMPEG, ["-hide_banner", "-version"], PROBE_TIMEOUT_MS);
   if (!version) {
     cachedProbe = { available: false };
+    cachedProbeExpiry = Date.now() + PROBE_FAILURE_TTL_MS;
     return cachedProbe;
   }
   const encoderList = await run(FFMPEG, ["-hide_banner", "-encoders"], PROBE_TIMEOUT_MS) ?? "";
@@ -46,11 +52,8 @@ export async function probeTranscoder() {
     encoders: { h264, hevc, aac },
     hardwareAccelerated: Boolean(h264?.endsWith("_videotoolbox")),
   };
+  if (!cachedProbe.available) cachedProbeExpiry = Date.now() + PROBE_FAILURE_TTL_MS;
   return cachedProbe;
-}
-
-export function resetTranscoderProbeForTests() {
-  cachedProbe = undefined;
 }
 
 const PROFILE_LIMITS = {
@@ -97,6 +100,9 @@ export function buildTranscodeArgs({ input, profile, encoders }) {
     "-hide_banner",
     "-nostdin",
     "-loglevel", "warning",
+    // Inputs are only local files or the gateway's loopback relay; the
+    // whitelist keeps ffmpeg from dialing anything else on its own.
+    "-protocol_whitelist", "file,http,tcp",
     "-i", input,
     "-map", "0:v:0",
     "-map", "0:a:0?",

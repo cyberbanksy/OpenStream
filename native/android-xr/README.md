@@ -19,15 +19,29 @@ engine. This is the product on Android — no web runtime.
   title, play them natively.
 - Settings surface real decoder/display probes (HDR10/HDR10+/HLG/Dolby
   Vision, HEVC/AV1 Main10) from the Media3 probe module.
+- Live TV presents a bounded pay-TV-style local/national/premium/sports/PPV
+  guide from the playlist or provider the user adds in Sources, while retaining
+  that provider's complete catalog in Channel Manager search. A 15-minute
+  in-memory lineup/guide session makes Back from playback immediate. Only guide
+  URLs advertised by the configured provider are fetched and cached.
 
-The Media3 capability probe/demo remains available at
-`.MainActivity` (explicit intent only); the launcher is `.NativeAppActivity`.
+`NativeAppActivity` is the only production app surface. Installs and updates
+enter the real source-driven OpenStream catalog; no sample catalog, playlist,
+channel, server connection, or add-on is compiled into the app.
 
 ## Build and test
 
 ```sh
 JAVA_HOME=$(/usr/libexec/java_home -v 17) gradle test assembleDebug
+pnpm test:android-device
 ```
+
+The attached-device smoke verifier is non-destructive: it checks the installed
+API level, launches the Compose activity, validates the visible app shell,
+navigates Discover → Library → Discover, checks the process log for a crash or
+ANR, and preserves the device's prior sleep state. Set
+`OPENSTREAM_SMOKE_NAVIGATE=0` to perform the launch and shell checks without
+changing the current screen.
 
 On this workstation Gradle cannot run on the project volume — rsync the
 module to a local directory first (see the repo docs). The debug APK is

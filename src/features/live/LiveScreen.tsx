@@ -1,32 +1,49 @@
-import { Radio, SignalHigh } from "lucide-react";
-import { useState } from "react";
+import { SignalHigh } from "lucide-react";
+import { useMemo } from "react";
 import { useApp } from "../../app/AppContext";
 import { Artwork } from "../../components/Artwork";
 
-const channels = [
-  { name: "Open Cinema", now: "Northstar", next: "The Last Signal", cell: [0, 0] as [number, number] },
-  { name: "Deep Field", now: "Echoes of Mars", next: "Cinder Fall", cell: [3, 0] as [number, number] },
-  { name: "Archive One", now: "Beyond the Rift", next: "Aurora", cell: [2, 1] as [number, number] },
-  { name: "Documentary", now: "Silent Tides", next: "Frontier Outpost", cell: [1, 2] as [number, number] },
-];
-
 export function LiveScreen() {
-  const { notify } = useApp();
-  const [selected, setSelected] = useState(0);
+  const { catalog, navigate, beginPlayback } = useApp();
+  // Live channels come from the same catalog the rest of the app reads (the
+  // pattern DiscoverScreen uses); nothing is hardcoded. When configured
+  // providers supply no live channels, we show an honest empty state and the
+  // online count is derived from the real list rather than a fixed badge.
+  const channels = useMemo(() => catalog.filter((item) => item.kind === "live"), [catalog]);
+
   return (
     <main className="screen workspace-screen live-screen">
       <section className="workspace-content full-width">
-        <header className="section-header"><div><h1>Live</h1><p>Channels from your configured providers</p></div><span className="live-state"><i /><SignalHigh size={17} />4 online</span></header>
-        <div className="live-guide">
-          <div className="guide-times"><span>Now · 8:30</span><span>9:00</span><span>9:30</span><span>10:00</span></div>
-          {channels.map((channel, index) => (
-            <button key={channel.name} data-focusable data-autofocus={index === 0 ? true : undefined} autoFocus={index === 0} className={selected === index ? "channel-row selected" : "channel-row"} onClick={() => { setSelected(index); notify({ tone: "neutral", title: channel.now, detail: `${channel.name} is ready to stream.` }); }}>
-              <span className="channel-logo"><Radio size={21} /></span><strong>{channel.name}</strong>
-              <span className="program current"><Artwork cell={channel.cell} /><b>{channel.now}</b><small>Now playing</small></span>
-              <span className="program"><b>{channel.next}</b><small>Up next</small></span>
-            </button>
-          ))}
-        </div>
+        <header className="section-header">
+          <div><h1>Live</h1><p>Channels from your configured providers</p></div>
+          <span className="live-state"><SignalHigh size={17} />{channels.length > 0 ? `${channels.length} online` : "No source"}</span>
+        </header>
+        {channels.length === 0 ? (
+          <div className="cinema-empty">
+            <h2>No live channels from your configured providers</h2>
+            <p>Add an IPTV account, playlist, or individual channel from Sources.</p>
+            <button className="action-button primary" data-focusable onClick={() => navigate("connections")}>Open Sources</button>
+          </div>
+        ) : (
+          <div className="live-channel-grid">
+            {channels.map((channel) => (
+              <button
+                key={channel.id}
+                data-focusable
+                className="live-channel-card"
+                aria-label={`Watch ${channel.title}`}
+                onClick={() => channel.candidates.length > 0 && beginPlayback(channel)}
+              >
+                <span className="live-channel-art"><Artwork cell={channel.artworkCell} className="live-channel-sprite" /></span>
+                <span className="live-channel-copy">
+                  <strong>{channel.title}</strong>
+                  {/* Neutral placeholder, not a fabricated guide time. */}
+                  <small>{channel.subtitle ?? "Live now"}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );

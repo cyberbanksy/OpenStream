@@ -121,3 +121,68 @@ import Testing
     )
     #expect(OpenStreamCapabilityNegotiator.evaluate(knownCodec, against: report).support == .supported)
 }
+
+@Test func appleOfflinePolicyChoosesTheBestDeviceCompatibleVariant() {
+    let variants = [
+        AppleOfflineVariant(
+            url: URL(string: "https://example.test/4k.m3u8")!,
+            width: 3840,
+            height: 2160,
+            bitrate: 18_000_000,
+            codec: .hevc,
+            dynamicRange: .dolbyVision,
+            estimatedBytes: 9_000_000_000
+        ),
+        AppleOfflineVariant(
+            url: URL(string: "https://example.test/1080.m3u8")!,
+            width: 1920,
+            height: 1080,
+            bitrate: 7_000_000,
+            codec: .hevc,
+            dynamicRange: .hdr10,
+            estimatedBytes: 3_000_000_000
+        ),
+        AppleOfflineVariant(
+            url: URL(string: "https://example.test/720.m3u8")!,
+            width: 1280,
+            height: 720,
+            bitrate: 3_000_000,
+            codec: .avc,
+            dynamicRange: .sdr,
+            estimatedBytes: 1_000_000_000
+        ),
+    ]
+    let device = AppleOfflineDeviceProfile(
+        maximumWidth: 1920,
+        maximumHeight: 1080,
+        codecs: [.avc, .hevc],
+        dynamicRanges: [.sdr, .hdr10],
+        availableBytes: 5_000_000_000
+    )
+
+    #expect(AppleOfflineQualityPolicy.bestVariant(from: variants, for: device)?.height == 1080)
+}
+
+@Test func playbackProgressOnlyResumesMeaningfulUnfinishedPlayback() {
+    #expect(ApplePlaybackProgress(position: 5, duration: 600).resumePosition == nil)
+    #expect(ApplePlaybackProgress(position: 120, duration: 600).resumePosition == 120)
+    #expect(ApplePlaybackProgress(position: 590, duration: 600).resumePosition == nil)
+}
+
+@Test func appleOfflineStoreCopiesListsAndRemovesLocalMedia() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "openstream-offline-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let source = root.appending(path: "source.mp4")
+    try Data([0, 1, 2, 3]).write(to: source)
+    let store = AppleOfflineMediaStore(rootDirectory: root.appending(path: "library"))
+
+    let record = try await store.makeAvailable(mediaID: "movie:1", sourceURL: source)
+    #expect(FileManager.default.fileExists(atPath: record.localURL.path))
+    #expect(await store.record(for: "movie:1")?.sourceExtension == "mp4")
+    #expect(await store.allRecords().map(\.mediaID) == ["movie:1"])
+
+    try await store.remove(mediaID: "movie:1")
+    #expect(await store.record(for: "movie:1") == nil)
+}

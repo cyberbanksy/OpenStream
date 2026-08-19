@@ -1,5 +1,27 @@
 import AVFoundation
 
+#if os(iOS)
+import AVKit
+
+@MainActor
+@available(iOS 18.0, *)
+public final class OpenStreamMobilePlayerController {
+    public let viewController: AVPlayerViewController
+
+    public init(url: URL, resumeAt seconds: Double = 0) {
+        let player = AVPlayer(url: url)
+        if seconds > 0 {
+            player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        }
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        viewController = controller
+    }
+}
+#endif
+
 #if os(tvOS)
 import AVKit
 

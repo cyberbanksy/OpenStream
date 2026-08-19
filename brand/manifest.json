@@ -1,0 +1,8 @@
+{
+  "name": "OpenStream three-bar identity",
+  "version": 2,
+  "mark": "openstream-mark.svg",
+  "appIcon": "openstream-app-icon.svg",
+  "canvas": "96x96 transparent mark; 400x400 black app icon",
+  "provenance": "Original vector artwork authored for OpenStream in this repository; no external assets or fonts."
+}

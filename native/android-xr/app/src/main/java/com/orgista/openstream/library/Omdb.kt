@@ -75,7 +75,8 @@ class Omdb(private val apiKey: String) {
             connection.disconnect()
         }
     } catch (error: Exception) {
-        Logs.warn("omdb request failed", error)
+        // The request URL contains the OMDb key, so never attach the cause.
+        Logs.warn("omdb request failed (${error::class.simpleName})")
         null
     }
 }

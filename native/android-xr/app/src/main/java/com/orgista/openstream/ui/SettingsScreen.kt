@@ -1,37 +1,80 @@
 package com.orgista.openstream.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.annotation.OptIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.util.UnstableApi
 import com.orgista.openstream.domain.ContentPolicy
+import com.orgista.openstream.library.MetadataCredentialPolicy
 import com.orgista.openstream.media.HdrCapabilityProbe
 import com.orgista.openstream.media.MediaCapabilityReport
 import com.orgista.openstream.media.SupportState
+import com.orgista.openstream.offline.OfflineMediaRuntime
+import com.orgista.openstream.offline.OfflineDeviceCapabilities
+import com.orgista.openstream.offline.OfflineStorageLocation
 import com.orgista.openstream.ui.icons.AppIcons
+import com.orgista.openstream.trakt.TraktClient
+import com.orgista.openstream.trakt.TraktDeviceAuthorization
+import com.orgista.openstream.trakt.TraktStore
+import com.orgista.openstream.streaming.BandwidthMeasurement
+import com.orgista.openstream.streaming.BandwidthRuntime
+import com.orgista.openstream.streaming.BandwidthStore
+import com.orgista.openstream.arr.ArrClient
+import com.orgista.openstream.arr.ArrConnection
+import com.orgista.openstream.arr.ArrDownloadDestination
+import com.orgista.openstream.arr.ArrEndpointPolicy
+import com.orgista.openstream.arr.ArrKind
+import com.orgista.openstream.arr.ArrStore
+import com.orgista.openstream.offline.OfflineProgressPolicy
+import com.orgista.openstream.offline.OfflineBulkDeletePolicy
+import com.orgista.openstream.storage.AppStorageManager
+import com.orgista.openstream.storage.AppStorageUsage
+import com.orgista.openstream.storage.StorageCleanupPolicy
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private fun rangeLabel(range: MediaCapabilityReport.DynamicRange): String = when (range) {
     MediaCapabilityReport.DynamicRange.SDR -> "SDR"
@@ -54,22 +97,69 @@ private fun stateColor(state: SupportState): Color = when (state) {
 }
 
 /** Device capability report (real decoder/display probes) plus family status. */
+@OptIn(UnstableApi::class)
 @Composable
 fun SettingsScreen(
     policy: ContentPolicy,
     libraryStore: com.orgista.openstream.library.LibraryStore,
+    offlineRuntime: OfflineMediaRuntime,
     onTmdbKeyChanged: () -> Unit,
+    onOfflineStorageChanged: (OfflineStorageLocation) -> Unit,
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val report = remember { HdrCapabilityProbe.inspect(context) }
+    val deviceProfile = remember { OfflineDeviceCapabilities.inspect(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    val arrStore = remember { ArrStore(context.applicationContext) }
+    val traktStore = remember { TraktStore(context.applicationContext) }
+    val traktClient = remember { TraktClient(traktStore) }
     var tmdbKey by remember { mutableStateOf(libraryStore.tmdbApiKey) }
     var savedKey by remember { mutableStateOf(libraryStore.tmdbApiKey) }
     var omdbKey by remember { mutableStateOf(libraryStore.omdbApiKey) }
     var savedOmdb by remember { mutableStateOf(libraryStore.omdbApiKey) }
+    var autoSubs by remember { mutableStateOf(libraryStore.autoSubtitles) }
+    var deleteAfterWatched by remember { mutableStateOf(libraryStore.deleteOfflineAfterWatched) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    var deletingAll by remember { mutableStateOf(false) }
+    var metadataOptIn by remember { mutableStateOf(libraryStore.metadataOptIn) }
+    var savedMetadataOptIn by remember { mutableStateOf(libraryStore.metadataOptIn) }
+    var traktClientId by remember { mutableStateOf(traktStore.credentials?.clientId.orEmpty()) }
+    var traktClientSecret by remember { mutableStateOf(traktStore.credentials?.clientSecret.orEmpty()) }
+    var traktConnected by remember { mutableStateOf(traktClient.connected) }
+    var traktEnabled by remember { mutableStateOf(traktStore.syncEnabled) }
+    var traktWorking by remember { mutableStateOf(false) }
+    var traktAuthorization by remember { mutableStateOf<TraktDeviceAuthorization?>(null) }
+    var traktError by remember { mutableStateOf<String?>(null) }
+    var bandwidth by remember { mutableStateOf<BandwidthMeasurement?>(BandwidthStore(context).fresh()) }
+    var bandwidthTesting by remember { mutableStateOf(false) }
+    var bandwidthError by remember { mutableStateOf<String?>(null) }
+    var arrDownloadDestination by remember { mutableStateOf(arrStore.downloadDestination) }
+    var storageUsage by remember { mutableStateOf(AppStorageUsage.EMPTY) }
+    var storageMeasured by remember { mutableStateOf(false) }
+    var storageAction by remember { mutableStateOf<String?>(null) }
+    var confirmClearMetadata by remember { mutableStateOf(false) }
+    val offlineEntries by offlineRuntime.entries.collectAsState()
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        storageUsage = withContext(Dispatchers.IO) {
+            AppStorageManager.usage(context.applicationContext)
+        }
+        storageMeasured = true
+    }
+
+    androidx.compose.runtime.LaunchedEffect(offlineEntries.size, deletingAll) {
+        if (offlineEntries.isEmpty()) {
+            deletingAll = false
+            confirmDeleteAll = false
+        }
+    }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(
+            horizontal = if (configuration.screenWidthDp >= 900) 96.dp else 24.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             "Settings",
@@ -80,28 +170,55 @@ fun SettingsScreen(
         )
 
         fun saveKeys() {
+            libraryStore.metadataOptIn = metadataOptIn
             libraryStore.tmdbApiKey = tmdbKey
             libraryStore.omdbApiKey = omdbKey
             savedKey = tmdbKey
             savedOmdb = omdbKey
+            savedMetadataOptIn = metadataOptIn
             onTmdbKeyChanged()
         }
-        val dirty = tmdbKey != savedKey || omdbKey != savedOmdb
+        val dirty = tmdbKey != savedKey || omdbKey != savedOmdb || metadataOptIn != savedMetadataOptIn
+        val tmdbFormatValid = tmdbKey.isBlank() || MetadataCredentialPolicy.looksLikeTmdbCredential(tmdbKey)
 
-        Panel("Artwork & descriptions (TMDB)") {
-            Text(
-                if (savedKey.isBlank()) "Add a free TMDB API key to fetch posters, backdrops, and descriptions for your libraries."
-                else "Posters and descriptions are enabled.",
-                fontSize = 13.sp,
-                color = OpenStreamColors.Muted,
-            )
+        Panel(
+            "TMDB API",
+            "TMDB provides title artwork, descriptions, cast, genres, and trailers. Create an API credential at themoviedb.org, then save it here for this device.",
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        "Use metadata APIs",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OpenStreamColors.Text,
+                    )
+                }
+                Switch(
+                    checked = metadataOptIn,
+                    onCheckedChange = { metadataOptIn = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = OpenStreamColors.Accent,
+                    ),
+                )
+            }
             androidx.compose.material3.OutlinedTextField(
                 value = tmdbKey,
                 onValueChange = { tmdbKey = it.trim() },
                 singleLine = true,
-                label = { Text("TMDB API key") },
-                placeholder = { Text("themoviedb.org → Settings → API") },
-                modifier = Modifier.fillMaxWidth(),
+                label = { Text("TMDB API") },
+                enabled = metadataOptIn,
+                visualTransformation = PasswordVisualTransformation(),
+                supportingText = if (!tmdbFormatValid) {
+                    { Text("Enter a 32-character v3 key or a v4 read token.") }
+                } else null,
+                isError = !tmdbFormatValid,
+                modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth(),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = OpenStreamColors.Accent.copy(alpha = 0.6f),
                     unfocusedBorderColor = OpenStreamColors.Border,
@@ -109,59 +226,390 @@ fun SettingsScreen(
             )
         }
 
-        Panel("Ratings · Rotten Tomatoes, IMDb & Metacritic") {
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (savedOmdb.isBlank()) AppIcons.Warning else AppIcons.Check,
-                    contentDescription = null,
-                    tint = if (savedOmdb.isBlank()) OpenStreamColors.Muted else OpenStreamColors.Green,
-                    modifier = Modifier.size(17.dp),
-                )
-                Text(
-                    if (savedOmdb.isBlank()) "Rotten Tomatoes scores are off." else "🍅 Rotten Tomatoes scores are on.",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OpenStreamColors.Text,
-                )
-            }
-            Text(
-                "Rotten Tomatoes has no public API of its own. Like Infuse and Jellyfin, OpenStream reads RT — plus IMDb and Metacritic — through OMDb, the free aggregator. Paste your OMDb key below and the scores appear on each title.",
-                fontSize = 13.sp,
-                color = OpenStreamColors.Muted,
-                lineHeight = 19.sp,
-            )
+        Panel(
+            "Rotten Tomatoes",
+            "OpenStream reads Rotten Tomatoes, IMDb, and Metacritic ratings through OMDb. Get a key at omdbapi.com/apikey.aspx and save it here.",
+        ) {
             androidx.compose.material3.OutlinedTextField(
                 value = omdbKey,
                 onValueChange = { omdbKey = it.trim() },
                 singleLine = true,
-                label = { Text("Rotten Tomatoes / OMDb key") },
-                placeholder = { Text("omdbapi.com/apikey.aspx — free") },
-                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Rotten Tomatoes API") },
+                enabled = metadataOptIn,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth(),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = OpenStreamColors.Accent.copy(alpha = 0.6f),
                     unfocusedBorderColor = OpenStreamColors.Border,
                 ),
-            )
-            Text(
-                "Get a free key: omdbapi.com → API Key → FREE (1,000/day). They email it; paste it here.",
-                fontSize = 12.sp,
-                color = OpenStreamColors.Muted,
             )
         }
 
         androidx.compose.material3.Button(
             onClick = { saveKeys() },
-            enabled = dirty,
+            enabled = dirty && tmdbFormatValid,
             colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                 containerColor = OpenStreamColors.Accent,
-                contentColor = OpenStreamColors.CanvasDeep,
+                contentColor = Color.White,
             ),
-        ) { Text(if (savedKey.isBlank() && savedOmdb.isBlank()) "Save & scan" else "Update & re-scan") }
+        ) { Text(if (!metadataOptIn) "Save with metadata off" else "Save & re-scan") }
+
+        Panel(
+            "Server downloads",
+            "Connect Radarr for movies and Sonarr for series. This sends download requests to your server; it does not add the server's files as an OpenStream library.",
+        ) {
+            Text(
+                "Download button default",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = OpenStreamColors.Text,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ArrDownloadDestination.entries.forEach { destination ->
+                    val title = when (destination) {
+                        ArrDownloadDestination.ASK -> "Ask"
+                        ArrDownloadDestination.DEVICE -> "This device"
+                        ArrDownloadDestination.SERVER -> "Server"
+                    }
+                    ArrDownloadDestinationOption(
+                        title = title,
+                        selected = arrDownloadDestination == destination,
+                    ) {
+                        arrDownloadDestination = destination
+                        arrStore.downloadDestination = destination
+                    }
+                }
+            }
+            ArrEditor(ArrKind.RADARR, arrStore)
+            ArrEditor(ArrKind.SONARR, arrStore)
+        }
+
+        Panel(
+            "Trakt",
+            "Trakt can sync watch progress and resume points between OpenStream devices. A Trakt API app is required until OpenStream has publisher credentials.",
+        ) {
+            if (traktConnected) {
+                Text("Connected", color = OpenStreamColors.Green, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Sync playback", fontWeight = FontWeight.Bold, color = OpenStreamColors.Text, fontSize = 14.sp)
+                }
+                Switch(
+                    checked = traktEnabled && traktConnected,
+                    enabled = traktConnected,
+                    onCheckedChange = { enabled -> traktEnabled = enabled; traktStore.syncEnabled = enabled },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = OpenStreamColors.Accent),
+                )
+            }
+            if (!traktConnected) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = traktClientId,
+                    onValueChange = { traktClientId = it.trim() },
+                    label = { Text("Trakt client ID") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth(),
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = traktClientSecret,
+                    onValueChange = { traktClientSecret = it.trim() },
+                    label = { Text("Trakt client secret") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth(),
+                )
+                traktAuthorization?.let { authorization ->
+                    Text(
+                        "At trakt.tv/activate enter code  ${authorization.userCode}",
+                        fontWeight = FontWeight.ExtraBold,
+                        color = OpenStreamColors.Cyan,
+                        fontSize = 16.sp,
+                    )
+                }
+                traktError?.let { Text(it, color = OpenStreamColors.Danger, fontSize = 13.sp) }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.Button(
+                        enabled = !traktWorking && traktClientId.isNotBlank() && traktClientSecret.isNotBlank(),
+                        onClick = {
+                            traktWorking = true
+                            traktError = null
+                            traktStore.saveCredentials(traktClientId, traktClientSecret)
+                            scope.launch {
+                                val authorizationResult = withContext(Dispatchers.IO) {
+                                    runCatching { traktClient.beginDeviceAuthorization() }
+                                }
+                                authorizationResult.fold(
+                                    onSuccess = { authorization ->
+                                        traktAuthorization = authorization
+                                        runCatching {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorization.verificationUrl)))
+                                        }
+                                        val tokenResult = withContext(Dispatchers.IO) {
+                                            runCatching { traktClient.awaitDeviceAuthorization(authorization) }
+                                        }
+                                        traktWorking = false
+                                        tokenResult.fold(
+                                            onSuccess = {
+                                                traktConnected = true
+                                                traktEnabled = true
+                                                traktStore.syncEnabled = true
+                                                traktAuthorization = null
+                                            },
+                                            onFailure = { traktError = it.message ?: "Trakt sign-in failed." },
+                                        )
+                                    },
+                                    onFailure = {
+                                        traktWorking = false
+                                        traktError = it.message ?: "Trakt sign-in could not start."
+                                    },
+                                )
+                            }
+                        },
+                    ) { Text(if (traktWorking) "Waiting for Trakt…" else "Connect Trakt") }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://trakt.tv/oauth/applications")))
+                        },
+                    ) { Text("Create Trakt app") }
+                }
+            } else {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { traktStore.disconnect(); traktConnected = false; traktAuthorization = null },
+                ) { Text("Disconnect Trakt") }
+            }
+        }
+
+        Panel("Streaming") {
+            bandwidthError?.let { Text(it, color = OpenStreamColors.Danger, fontSize = 13.sp) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.OutlinedButton(
+                    enabled = !bandwidthTesting,
+                    onClick = {
+                        bandwidthTesting = true
+                        bandwidthError = null
+                        scope.launch {
+                            val result = runCatching {
+                                BandwidthRuntime.currentOrMeasure(context.applicationContext, force = true)
+                            }
+                            bandwidthTesting = false
+                            result.fold(
+                                onSuccess = { bandwidth = it },
+                                onFailure = { bandwidthError = it.message ?: "The speed test failed." },
+                            )
+                        }
+                    },
+                ) {
+                    if (bandwidthTesting) {
+                        OpenStreamLoadingLabel("Testing")
+                    } else {
+                        Text("Speed Test")
+                    }
+                }
+                bandwidth?.let {
+                    Text(
+                        "${String.format(Locale.US, "%.1f", it.mbps)} Mbps",
+                        color = OpenStreamColors.Green,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+
+        Panel("Captions") {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        "Auto-On",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OpenStreamColors.Text,
+                    )
+                }
+                Switch(
+                    checked = autoSubs,
+                    onCheckedChange = { autoSubs = it; libraryStore.autoSubtitles = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = OpenStreamColors.Accent,
+                    ),
+                )
+            }
+        }
+
+        Panel(
+            "Downloads",
+            "Device downloads are optimized for this screen and stay in private app storage. Changing storage is available when no downloads are present.",
+        ) {
+            val storageStats = remember(offlineEntries) { offlineRuntime.storageStats() }
+            Text(
+                "${OfflineProgressPolicy.formatBytes(storageStats.availableBytes)} free · " +
+                    "${OfflineProgressPolicy.formatBytes(storageStats.downloadedBytes)} currently available offline",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = OpenStreamColors.Cyan,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OfflineStorageOption(
+                    title = "Internal storage",
+                    detail = "Built in",
+                    selected = offlineRuntime.storageTarget.location == OfflineStorageLocation.INTERNAL,
+                    enabled = offlineEntries.isEmpty(),
+                ) { onOfflineStorageChanged(OfflineStorageLocation.INTERNAL) }
+                OfflineStorageOption(
+                    title = "SD card",
+                    detail = if (offlineRuntime.storageTarget.removableAvailable) "Available" else "Not available",
+                    selected = offlineRuntime.storageTarget.location == OfflineStorageLocation.SD_CARD,
+                    enabled = offlineEntries.isEmpty() && offlineRuntime.storageTarget.removableAvailable,
+                ) { onOfflineStorageChanged(OfflineStorageLocation.SD_CARD) }
+            }
+            SettingsToggleRow(
+                title = "Delete After Watching",
+                info = "Automatically removes a completed device download after playback is marked watched.",
+                checked = deleteAfterWatched,
+                onCheckedChange = {
+                    deleteAfterWatched = it
+                    libraryStore.deleteOfflineAfterWatched = it
+                },
+            )
+            if (!confirmDeleteAll) {
+                TextButton(
+                    enabled = OfflineBulkDeletePolicy.canStart(offlineEntries.size, deletingAll),
+                    onClick = { confirmDeleteAll = true },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = OpenStreamColors.Danger,
+                    ),
+                ) {
+                    Icon(AppIcons.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        if (deletingAll) "Removing downloads…" else "Delete all downloads",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = { confirmDeleteAll = false },
+                    title = { Text("Delete all downloads?") },
+                    text = { Text("This removes ${offlineEntries.size} downloaded item${if (offlineEntries.size == 1) "" else "s"} from this device.") },
+                    dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                if (OfflineBulkDeletePolicy.shouldRemove(
+                                        confirming = confirmDeleteAll,
+                                        downloadCount = offlineEntries.size,
+                                        removing = deletingAll,
+                                    )
+                                ) {
+                                    deletingAll = true
+                                    confirmDeleteAll = false
+                                    val count = offlineRuntime.removeAll()
+                                    Toast.makeText(
+                                        context,
+                                        "Removing $count download${if (count == 1) "" else "s"}",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                        ) { Text("Delete", color = OpenStreamColors.Danger) }
+                    },
+                )
+            }
+            if (offlineEntries.isNotEmpty()) {
+                Text(
+                    "Storage is locked while ${offlineEntries.size} offline ${if (offlineEntries.size == 1) "item exists" else "items exist"}. Remove them before switching locations.",
+                    fontSize = 12.sp,
+                    color = OpenStreamColors.Amber,
+                )
+            }
+        }
+
+        Panel(
+            "Storage",
+            "Cache includes artwork and temporary files. Metadata includes catalog indexes and title details. Downloads, settings, credentials, and playback history are never removed here.",
+        ) {
+            StorageCleanupRow(
+                title = "Cache",
+                detail = if (storageMeasured) {
+                    "${StorageCleanupPolicy.formatBytes(storageUsage.cacheBytes)} used"
+                } else {
+                    "Measuring…"
+                },
+                actionLabel = "Clear cache",
+                enabled = storageMeasured && storageAction == null && storageUsage.cacheBytes > 0L,
+                working = storageAction == "cache",
+                onClick = {
+                    storageAction = "cache"
+                    scope.launch {
+                        storageUsage = withContext(Dispatchers.IO) {
+                            AppStorageManager.clearCache(context.applicationContext)
+                        }
+                        storageAction = null
+                        Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
+            StorageCleanupRow(
+                title = "Metadata",
+                detail = if (storageMeasured) {
+                    "${StorageCleanupPolicy.formatBytes(storageUsage.metadataBytes)} used"
+                } else {
+                    "Measuring…"
+                },
+                actionLabel = "Clear metadata",
+                enabled = storageMeasured && storageAction == null && storageUsage.metadataBytes > 0L,
+                working = storageAction == "metadata",
+                onClick = { confirmClearMetadata = true },
+            )
+        }
+
+        if (confirmClearMetadata) {
+            AlertDialog(
+                onDismissRequest = { confirmClearMetadata = false },
+                title = { Text("Clear metadata?") },
+                text = { Text("Catalog indexes and saved title details will reload as you browse. Downloads and playback history will stay on this device.") },
+                dismissButton = {
+                    TextButton(onClick = { confirmClearMetadata = false }) { Text("Cancel") }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmClearMetadata = false
+                            storageAction = "metadata"
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    AppStorageManager.clearMetadata(context.applicationContext)
+                                }
+                                kotlinx.coroutines.delay(2_000L)
+                                storageUsage = withContext(Dispatchers.IO) {
+                                    AppStorageManager.usage(context.applicationContext)
+                                }
+                                storageAction = null
+                                Toast.makeText(context, "Metadata cleared", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ) { Text("Clear", color = OpenStreamColors.Danger) }
+                },
+            )
+        }
 
         Panel("Family & content") {
             when (policy) {
                 is ContentPolicy.Kids -> {
-                    InfoRow(AppIcons.Lock, "Kids Mode", "Permanently on · ${policy.cap.label} (${policy.cap.examples})", OpenStreamColors.Amber)
+                    SettingsValueRow(
+                        title = "Kids Mode",
+                        value = "On",
+                        info = "Kids Mode is permanent for this installation and allows content up to ${policy.cap.label} (${policy.cap.examples}).",
+                    )
                     InfoRow(AppIcons.Check, "Unrated content", "Always blocked", OpenStreamColors.Green)
                     InfoRow(
                         AppIcons.Check,
@@ -169,18 +617,40 @@ fun SettingsScreen(
                         if (policy.blockedTerms.isEmpty()) "None" else "${policy.blockedTerms.size} hidden",
                         OpenStreamColors.Green,
                     )
-                    Text(
-                        "Turning Kids Mode off requires uninstalling OpenStream and setting it up again.",
-                        fontSize = 13.sp,
-                        color = OpenStreamColors.Muted,
-                    )
                 }
-                ContentPolicy.Standard -> InfoRow(AppIcons.Check, "Kids Mode", "Off — chosen at setup", OpenStreamColors.Muted)
+                ContentPolicy.Standard -> SettingsValueRow(
+                    title = "Kids Mode",
+                    value = "Off",
+                    info = "Kids Mode is chosen during setup and cannot be enabled later without reinstalling OpenStream.",
+                )
             }
         }
 
-        Panel("Playback (decoder & display probes)") {
-            MediaCapabilityReport.DynamicRange.entries.forEach { range ->
+        Panel(
+            "Playback",
+            buildString {
+                append("Decoder input up to ${deviceProfile.maxDecodeWidth} × ${deviceProfile.maxDecodeHeight}. ")
+                append("Dolby Vision profiles: ")
+                append(report.dolbyVisionBitstreamProfiles().takeIf { it.isNotEmpty() }?.joinToString { "P$it" } ?: "none reported")
+                append(". HEVC Main10: ${if (report.hasHevcMain10Decoder()) "available" else "unavailable"}. ")
+                append("AV1 Main10: ${if (report.hasAv1Main10Decoder()) "available" else "unavailable"}.")
+            },
+        ) {
+            InfoRow(
+                AppIcons.Check,
+                "Active display",
+                "${deviceProfile.maxWidth} × ${deviceProfile.maxHeight} · playback and downloads capped to this display",
+                OpenStreamColors.Green,
+            )
+            InfoRow(
+                AppIcons.Check,
+                "Audio output",
+                if (deviceProfile.dolbyAtmos) "Dolby Atmos output detected" else "Standard surround / stereo output",
+                if (deviceProfile.dolbyAtmos) OpenStreamColors.Green else OpenStreamColors.TextSoft,
+            )
+            MediaCapabilityReport.DynamicRange.entries.filter {
+                report.playableState(it) == SupportState.SUPPORTED
+            }.forEach { range ->
                 val state = report.playableState(range)
                 InfoRow(
                     icon = if (state == SupportState.SUPPORTED) AppIcons.Check else AppIcons.Warning,
@@ -189,42 +659,361 @@ fun SettingsScreen(
                     tint = stateColor(state),
                 )
             }
-            InfoRow(
-                AppIcons.Check,
-                "HEVC Main10",
-                if (report.hasHevcMain10Decoder()) "Hardware decoder present" else "No decoder",
-                if (report.hasHevcMain10Decoder()) OpenStreamColors.Green else OpenStreamColors.Danger,
-            )
-            InfoRow(
-                AppIcons.Check,
-                "AV1 Main10",
-                if (report.hasAv1Main10Decoder()) "Hardware decoder present" else "No decoder",
-                if (report.hasAv1Main10Decoder()) OpenStreamColors.Green else OpenStreamColors.Danger,
-            )
         }
 
         Panel("About") {
-            InfoRow(AppIcons.Home, "OpenStream", "Native Android · Media3 playback · direct SMB", OpenStreamColors.Cyan)
-            Text(
-                "NAS files play natively; formats the device cannot decode are reported before playback rather than silently failing.",
-                fontSize = 13.sp,
-                color = OpenStreamColors.Muted,
-            )
+            Surface(
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/cyberbanksy")))
+                },
+                shape = RoundedCornerShape(10.dp),
+                color = OpenStreamColors.SurfaceRaised,
+            ) {
+                Text(
+                    "GitHub · cyberbanksy",
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OpenStreamColors.Cyan,
+                )
+            }
+        }
+        androidx.compose.foundation.layout.Spacer(Modifier.heightIn(min = 36.dp))
+    }
+}
+
+@Composable
+private fun StorageCleanupRow(
+    title: String,
+    detail: String,
+    actionLabel: String,
+    enabled: Boolean,
+    working: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+            Text(detail, fontSize = 12.sp, color = OpenStreamColors.Muted)
+        }
+        androidx.compose.material3.OutlinedButton(
+            enabled = enabled,
+            onClick = onClick,
+        ) {
+            if (working) OpenStreamLoadingLabel("Clearing") else Text(actionLabel)
         }
     }
 }
 
 @Composable
-private fun Panel(title: String, content: @Composable () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = OpenStreamColors.Surface,
-        border = BorderStroke(1.dp, OpenStreamColors.Border),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = OpenStreamColors.Text)
-            content()
+private fun ArrEditor(kind: ArrKind, store: ArrStore) {
+    val scope = rememberCoroutineScope()
+    var saved by remember(kind) { mutableStateOf(store.load(kind)) }
+    var baseUrl by remember(kind) { mutableStateOf(saved?.baseUrl.orEmpty()) }
+    var apiKey by remember(kind) { mutableStateOf(saved?.apiKey.orEmpty()) }
+    var working by remember(kind) { mutableStateOf(false) }
+    var message by remember(kind) { mutableStateOf<String?>(null) }
+    var error by remember(kind) { mutableStateOf(false) }
+    val valid = baseUrl.isNotBlank() && apiKey.isNotBlank() && ArrEndpointPolicy.isAllowed(baseUrl)
+
+    Text(
+        kind.displayName,
+        modifier = Modifier.padding(top = 6.dp),
+        fontSize = 15.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = OpenStreamColors.Text,
+    )
+    androidx.compose.material3.OutlinedTextField(
+        value = baseUrl,
+        onValueChange = { baseUrl = it.trim(); message = null },
+        singleLine = true,
+        label = { Text("${kind.displayName} address") },
+        placeholder = { Text("http://192.168.1.20:${kind.defaultPort}") },
+        supportingText = if (baseUrl.isNotBlank() && !ArrEndpointPolicy.isAllowed(baseUrl)) {
+            { Text("Use HTTPS, or HTTP with a private local IP address.") }
+        } else null,
+        isError = baseUrl.isNotBlank() && !ArrEndpointPolicy.isAllowed(baseUrl),
+        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth(),
+    )
+    androidx.compose.material3.OutlinedTextField(
+        value = apiKey,
+        onValueChange = { apiKey = it.trim(); message = null },
+        singleLine = true,
+        label = { Text("${kind.displayName} API key") },
+        visualTransformation = PasswordVisualTransformation(),
+        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth(),
+    )
+    message?.let {
+        Text(it, fontSize = 12.sp, color = if (error) OpenStreamColors.Danger else OpenStreamColors.Green)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        androidx.compose.material3.Button(
+            enabled = valid && !working,
+            onClick = {
+                val connection = ArrConnection(kind, kind.displayName, baseUrl, apiKey)
+                val result = runCatching { store.save(connection) }
+                result.onSuccess {
+                    saved = connection
+                    error = false
+                    message = "Saved privately on this device."
+                }.onFailure {
+                    error = true
+                    message = it.message ?: "Could not save this connection."
+                }
+            },
+        ) { Text("Save") }
+        androidx.compose.material3.OutlinedButton(
+            enabled = valid && !working,
+            onClick = {
+                working = true
+                message = null
+                scope.launch {
+                    val connection = ArrConnection(kind, kind.displayName, baseUrl, apiKey)
+                    val result = withContext(Dispatchers.IO) { runCatching { ArrClient.test(connection) } }
+                    working = false
+                    result.onSuccess { status ->
+                        store.save(connection)
+                        saved = connection
+                        error = false
+                        message = buildString {
+                            append("Connected to ").append(status.appName)
+                            if (status.version.isNotBlank()) append(" ").append(status.version)
+                            if (status.instanceName.isNotBlank()) append(" · ").append(status.instanceName)
+                        }
+                    }.onFailure {
+                        error = true
+                        message = it.message ?: "Could not reach ${kind.displayName}."
+                    }
+                }
+            },
+        ) {
+            if (working) {
+                OpenStreamLoadingLabel("Testing")
+            } else {
+                Text("Test")
+            }
         }
+        if (saved != null) {
+            androidx.compose.material3.OutlinedButton(
+                enabled = !working,
+                onClick = {
+                    store.remove(kind)
+                    saved = null
+                    baseUrl = ""
+                    apiKey = ""
+                    error = false
+                    message = "Removed from this device."
+                },
+            ) { Text("Remove") }
+        }
+    }
+}
+
+@Composable
+private fun OfflineStorageOption(
+    title: String,
+    detail: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.widthIn(min = 148.dp, max = 196.dp).heightIn(min = 46.dp),
+        shape = RoundedCornerShape(7.dp),
+        color = if (selected) OpenStreamColors.SurfaceRaised else OpenStreamColors.CanvasDeep,
+        border = BorderStroke(
+            1.dp,
+            if (selected) OpenStreamColors.Cyan.copy(alpha = 0.65f) else OpenStreamColors.Border,
+        ),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (selected) AppIcons.Check else AppIcons.Storage,
+                contentDescription = null,
+                tint = when {
+                    selected -> OpenStreamColors.Cyan
+                    enabled -> OpenStreamColors.TextSoft
+                    else -> OpenStreamColors.Muted
+                },
+                modifier = Modifier.size(16.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+                Text(detail, fontSize = 11.sp, color = OpenStreamColors.Muted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArrDownloadDestinationOption(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.heightIn(min = 42.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) OpenStreamColors.SurfaceRaised else OpenStreamColors.CanvasDeep,
+        border = BorderStroke(
+            1.dp,
+            if (selected) OpenStreamColors.Cyan.copy(alpha = 0.65f) else OpenStreamColors.Border,
+        ),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (selected) AppIcons.Check else AppIcons.Download,
+                contentDescription = null,
+                tint = if (selected) OpenStreamColors.Cyan else OpenStreamColors.TextSoft,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+        }
+    }
+}
+
+@Composable
+internal fun Panel(
+    title: String,
+    info: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable () -> Unit,
+) {
+    var showInfo by remember(title) { mutableStateOf(false) }
+    val layout = SettingsSectionLayoutPolicy.current
+    Column(
+        Modifier.fillMaxWidth().padding(
+            top = layout.topPaddingDp.dp,
+            bottom = layout.bottomPaddingDp.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                fontSize = layout.headingSizeSp.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = OpenStreamColors.Text,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                actions()
+                if (info != null) {
+                    SettingsInfoButton(label = "$title information", onClick = { showInfo = true })
+                }
+            }
+        }
+        content()
+    }
+    if (showInfo && info != null) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(title) },
+            text = { Text(info) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Done") } },
+        )
+    }
+}
+
+@Composable
+private fun SettingsInfoButton(label: String, onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(48.dp).semantics { contentDescription = label },
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, OpenStreamColors.Muted),
+        ) {
+            androidx.compose.foundation.layout.Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                Text("i", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.TextSoft)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    info: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    var showInfo by remember(title) { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+            SettingsInfoButton(label = "$title information", onClick = { showInfo = true })
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = OpenStreamColors.Accent,
+            ),
+        )
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(title) },
+            text = { Text(info) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Done") } },
+        )
+    }
+}
+
+@Composable
+private fun SettingsValueRow(
+    title: String,
+    value: String,
+    info: String,
+) {
+    var showInfo by remember(title) { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 44.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = OpenStreamColors.Text)
+        Text(value, fontSize = 13.sp, color = OpenStreamColors.Muted)
+        SettingsInfoButton(label = "$title information", onClick = { showInfo = true })
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(title) },
+            text = { Text(info) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Done") } },
+        )
     }
 }
 

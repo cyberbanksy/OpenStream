@@ -84,7 +84,9 @@ object NasDiscovery {
             Logs.warn("nas discovery: mDNS error", error)
             emptyList()
         } finally {
-            runCatching { multicastLock?.release() }
+            if (multicastLock?.isHeld == true) {
+                runCatching { multicastLock.release() }
+            }
         }
     }
 

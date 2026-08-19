@@ -20,15 +20,15 @@ import {
 } from "../domain/contentPolicy";
 import { inferPlatform, probeBrowserCapabilities } from "../domain/platform";
 import type { MediaItem } from "../domain/media";
-import type { ConnectionSummary } from "../integrations/connection";
+import { connectionListsEqual, type ConnectionSummary, mergeGatewayConnections } from "../integrations/connection";
 import { getTranscoderCapabilities, listGatewayConnections, type TranscoderCapabilities } from "../integrations/gateway";
 import { completeStandardOnboarding, enableKidsMode, loadActivePolicy } from "./appProfile";
-import type { PlaybackSession, ToastMessage, ViewId } from "./types";
+import { kidsHiddenViews, type PlaybackSession, type ToastMessage, type ViewId } from "./types";
 
 type AppContextValue = {
   view: ViewId;
   previousView: ViewId;
-  selectedItem: MediaItem;
+  selectedItem?: MediaItem;
   catalog: MediaItem[];
   policy?: ContentPolicy;
   kidsMode: boolean;
@@ -54,6 +54,11 @@ type AppContextValue = {
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
+/** How often the loopback gateway is polled for connection changes. */
+const CONNECTION_POLL_INTERVAL_MS = 10_000;
+/** How long a toast stays visible before it dismisses itself. */
+const TOAST_DISMISS_MS = 4200;
+
 function readRoute() {
   const params = new URLSearchParams(window.location.search);
   const route = params.get("screen") as ViewId | null;
@@ -75,14 +80,12 @@ function readRoute() {
   };
 }
 
-const kidsHiddenViews: ViewId[] = ["connections", "activity"];
-
 export function AppProvider({ children }: PropsWithChildren) {
   const initial = useMemo(readRoute, []);
   const [policy, setPolicy] = useState<ContentPolicy | undefined>(() => loadActivePolicy());
   const [view, setView] = useState<ViewId>(initial.view);
   const [previousView, setPreviousView] = useState<ViewId>("discover");
-  const [selectedItem, setSelectedItem] = useState<MediaItem>(initial.item);
+  const [selectedItem, setSelectedItem] = useState<MediaItem | undefined>(initial.item);
   const [capabilities, setCapabilities] = useState<PlaybackCapabilities>(
     platformCapabilityHints[inferPlatform()],
   );
@@ -95,12 +98,13 @@ export function AppProvider({ children }: PropsWithChildren) {
   const kidsMode = policy?.mode === "kids";
   const visibleCatalog = useMemo(() => filterCatalog(catalog, policy ?? standardPolicy), [policy]);
 
-  const updateUrl = useCallback((nextView: ViewId, item?: MediaItem) => {
+  const updateUrl = useCallback((nextView: ViewId, item?: MediaItem, history: "push" | "replace" = "push") => {
     const url = new URL(window.location.href);
     url.searchParams.set("screen", nextView);
     if (item && (nextView === "details" || nextView === "player")) url.searchParams.set("item", item.id);
     else url.searchParams.delete("item");
-    window.history.pushState({}, "", url);
+    if (history === "replace") window.history.replaceState({}, "", url);
+    else window.history.pushState({}, "", url);
   }, []);
 
   const notify = useCallback((message: Omit<ToastMessage, "id">) => {
@@ -133,6 +137,10 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, [notify, policy, updateUrl]);
 
   const beginPlayback = useCallback((item = selectedItem) => {
+    if (!item) {
+      notify({ tone: "neutral", title: "Nothing selected", detail: "Add a source, then choose a title to play." });
+      return;
+    }
     if (!isItemAllowed(item, policy ?? standardPolicy)) {
       notify({ tone: "warning", title: "Not available in Kids Mode", detail: `${item.title} is outside this device's allowed ratings.` });
       return;
@@ -163,7 +171,9 @@ export function AppProvider({ children }: PropsWithChildren) {
   const goBack = useCallback(() => {
     const target = previousView === "player" ? "details" : previousView;
     setView(target);
-    updateUrl(target, target === "details" ? selectedItem : undefined);
+    // Replace instead of push so in-app Back does not grow the history stack
+    // and make the browser Back button ping-pong.
+    updateUrl(target, target === "details" ? selectedItem : undefined, "replace");
   }, [previousView, selectedItem, updateUrl]);
 
   const completeOnboarding = useCallback((mode: "standard" | "kids", kidsPolicy?: KidsPolicy) => {
@@ -183,6 +193,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       return current.map((item, itemIndex) => itemIndex === index ? connection : item);
     });
   }, []);
+
+  const openConnectionDialog = useCallback(() => setConnectionDialogOpen(true), []);
+  const closeConnectionDialog = useCallback(() => setConnectionDialogOpen(false), []);
+  const dismissToast = useCallback(() => setToast(undefined), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,15 +218,17 @@ export function AppProvider({ children }: PropsWithChildren) {
         const managedConnections = await listGatewayConnections();
         if (cancelled) return;
         setConnections((current) => {
-          const managedIds = new Set(managedConnections.map((connection) => connection.id));
-          return [...managedConnections, ...current.filter((connection) => !connection.managed || !managedIds.has(connection.id))];
+          const next = mergeGatewayConnections(current, managedConnections);
+          // Keep the current reference when nothing changed so a poll tick
+          // does not re-render the whole app.
+          return connectionListsEqual(current, next) ? current : next;
         });
       } catch {
         // The UI remains usable when the optional loopback gateway is not running.
       }
     };
     void refresh();
-    const interval = window.setInterval(refresh, 10_000);
+    const interval = window.setInterval(refresh, CONNECTION_POLL_INTERVAL_MS);
     const handleVisibility = () => document.visibilityState === "visible" && void refresh();
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
@@ -235,7 +251,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!kidsMode) return;
     if (kidsHiddenViews.includes(view)) setView("discover");
-    if (!isItemAllowed(selectedItem, policy ?? standardPolicy)) {
+    if (selectedItem && !isItemAllowed(selectedItem, policy ?? standardPolicy)) {
       const fallback = visibleCatalog[0];
       if (fallback) setSelectedItem(fallback);
       setPlayback((current) => current && !isItemAllowed(current.item, policy ?? standardPolicy) ? undefined : current);
@@ -251,16 +267,16 @@ export function AppProvider({ children }: PropsWithChildren) {
       connections: "Connections",
       activity: "Activity",
       settings: "Playback capabilities",
-      details: selectedItem.title,
-      player: `Playing ${selectedItem.title}`,
+      details: selectedItem?.title ?? "Details",
+      player: selectedItem ? `Playing ${selectedItem.title}` : "Player",
       search: "Search",
     };
     document.title = `${labels[view]} · OpenStream`;
-  }, [selectedItem.title, view]);
+  }, [selectedItem, view]);
 
   useEffect(() => {
     if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(undefined), 4200);
+    const timeout = window.setTimeout(() => setToast(undefined), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
@@ -284,21 +300,24 @@ export function AppProvider({ children }: PropsWithChildren) {
     selectPlaybackRoute,
     setPlaybackStatus,
     goBack,
-    openConnectionDialog: () => setConnectionDialogOpen(true),
-    closeConnectionDialog: () => setConnectionDialogOpen(false),
+    openConnectionDialog,
+    closeConnectionDialog,
     upsertConnection,
     notify,
-    dismissToast: () => setToast(undefined),
+    dismissToast,
   }), [
     beginPlayback,
     capabilities,
+    closeConnectionDialog,
     completeOnboarding,
     connectionDialogOpen,
     connections,
+    dismissToast,
     goBack,
     kidsMode,
     navigate,
     notify,
+    openConnectionDialog,
     openItem,
     playback,
     policy,

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="playback_status">%1$s  ·  %2$s  ·  %3$s</string>
+    <string name="offline_download_channel_name">Offline downloads</string>
+    <string name="offline_download_channel_description">OpenStream media saved to this device</string>
 </resources>

@@ -15,6 +15,23 @@ function containerFromName(name: string): MediaFormat["container"] {
   return "unknown";
 }
 
+/**
+ * NAS files are streamed without server-side probing, so only the container is
+ * known (from the file name). Everything else is a neutral placeholder the
+ * device replaces with real values when it probes the stream at playback time.
+ */
+const PLACEHOLDER_NAS_FORMAT: Omit<MediaFormat, "container"> = {
+  videoCodec: "unknown",
+  audioCodec: "unknown",
+  width: 1920,
+  height: 1080,
+  frameRate: 24,
+  bitDepth: 8,
+  dynamicRange: "sdr",
+  projection: "flat",
+  spatialAudio: "none",
+};
+
 function nasMediaItem(connection: ConnectionSummary, file: { name: string; path: string; size?: number }, mediaUrl: string): MediaItem {
   const title = file.name.replace(/\.[^.]+$/, "");
   return {
@@ -37,15 +54,7 @@ function nasMediaItem(connection: ConnectionSummary, file: { name: string; path:
       uri: mediaUrl,
       format: {
         container: containerFromName(file.name),
-        videoCodec: "unknown",
-        audioCodec: "unknown",
-        width: 1920,
-        height: 1080,
-        frameRate: 24,
-        bitDepth: 8,
-        dynamicRange: "sdr",
-        projection: "flat",
-        spatialAudio: "none",
+        ...PLACEHOLDER_NAS_FORMAT,
       },
       bitrateMbps: file.size ? Math.max(1, Math.round(file.size / 1_000_000 / 60)) : 20,
       directPlay: true,

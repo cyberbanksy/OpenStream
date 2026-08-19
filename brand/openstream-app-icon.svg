@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-labelledby="title desc">
+  <title id="title">OpenStream app icon</title>
+  <desc id="desc">Compact white three-bar OpenStream mark on black.</desc>
+  <rect width="400" height="400" rx="72" fill="#070909" />
+  <g fill="none" stroke="#f5f8f9" stroke-width="26" stroke-linecap="round">
+    <path d="M144 164h81" />
+    <path d="M144 200h113" />
+    <path d="M144 236h81" />
+  </g>
+</svg>

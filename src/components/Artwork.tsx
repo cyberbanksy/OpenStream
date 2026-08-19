@@ -1,16 +1,16 @@
 import type { CSSProperties } from "react";
-import mediaSheet from "../assets/media-sheet.png";
 
 export function Artwork({ cell, className = "" }: { cell: [number, number]; className?: string }) {
   const [column, row] = cell;
+  const hue = (column * 61 + row * 97 + 198) % 360;
   return (
     <span
       aria-hidden="true"
       className={`artwork ${className}`}
       style={{
-        "--artwork-image": `url(${mediaSheet})`,
-        "--artwork-x": `${column * 33.333}%`,
-        "--artwork-y": `${row * 50}%`,
+        "--artwork-image": `linear-gradient(145deg, hsl(${hue} 38% 28%), hsl(${(hue + 42) % 360} 34% 10%))`,
+        "--artwork-x": "0%",
+        "--artwork-y": "0%",
       } as CSSProperties}
     />
   );

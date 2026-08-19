@@ -1,10 +1,13 @@
 import { z } from "zod";
-import type { ConnectionKind, ConnectionSummary } from "./connection";
+import { type ConnectionKind, connectionKinds, type ConnectionSummary } from "./connection";
 import type { MediaItem } from "../domain/media";
+
+/** Base path the app and the loopback gateway share for proxied requests. */
+export const GATEWAY_BASE_PATH = "/gateway";
 
 const connectionSchema = z.object({
   id: z.string(),
-  kind: z.string(),
+  kind: z.enum(connectionKinds),
   name: z.string(),
   detail: z.string(),
   state: z.enum(["connected", "attention", "disconnected", "checking"]),
@@ -64,8 +67,8 @@ async function gatewayJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   const timeout = window.setTimeout(() => controller.abort(), 15_000);
   try {
     const browserSession = window.sessionStorage.getItem(BROWSER_SESSION_STORAGE_KEY);
-    if (!browserSession) throw new Error("Open this app with the secure launch URL printed by pnpm dev.");
-    const response = await fetch(`/gateway${path}`, {
+    if (!browserSession) throw new Error("Open this app with the secure launch URL from the OpenStream host.");
+    const response = await fetch(`${GATEWAY_BASE_PATH}${path}`, {
       ...init,
       signal: controller.signal,
       credentials: "omit",
@@ -77,12 +80,20 @@ async function gatewayJson<T>(path: string, init: RequestInit = {}): Promise<T> 
         ...init.headers,
       },
     });
-    const payload = await response.json() as { error?: string };
+    let payload: { error?: string };
+    try {
+      payload = await response.json() as { error?: string };
+    } catch {
+      // A proxy in front of the gateway may answer with an HTML error page.
+      throw new Error(response.ok
+        ? "The secure gateway returned an unreadable response."
+        : `Secure gateway request failed (${response.status}).`);
+    }
     if (!response.ok) throw new Error(payload.error || `Secure gateway request failed (${response.status}).`);
     return payload as T;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw new Error("The secure gateway timed out.");
-    if (error instanceof TypeError) throw new Error("The secure gateway is unavailable. Restart pnpm dev and use its secure launch URL.");
+    if (error instanceof TypeError) throw new Error("The secure gateway is unavailable. Restart the OpenStream host and use its secure launch URL.");
     throw error;
   } finally {
     window.clearTimeout(timeout);
@@ -95,14 +106,14 @@ export async function connectThroughGateway(draft: GatewayConnectionDraft) {
     body: JSON.stringify({ ...draft, appOrigin: window.location.origin }),
   }));
   return {
-    connection: result.connection as ConnectionSummary,
+    connection: result.connection satisfies ConnectionSummary,
     authorizationUrl: result.authorizationUrl,
   };
 }
 
-export async function listGatewayConnections() {
+export async function listGatewayConnections(): Promise<ConnectionSummary[]> {
   const payload = await gatewayJson<{ connections?: unknown[] }>("/connections");
-  return z.array(connectionSchema).parse(payload.connections ?? []) as ConnectionSummary[];
+  return z.array(connectionSchema).parse(payload.connections ?? []);
 }
 
 export async function getArrOptions(connectionId: string) {
@@ -133,28 +144,6 @@ export function sendToArrGateway(
       },
     }),
   });
-}
-
-export function handoffNzb(connectionId: string, nzbUrl: string, category?: string) {
-  return gatewayJson<{ result: unknown }>("/usenet/handoff", {
-    method: "POST",
-    body: JSON.stringify({ connectionId, nzbUrl, category }),
-  });
-}
-
-export function loadGatewayStremioStreams(connectionId: string, type: string, id: string) {
-  return gatewayJson<{ streams: unknown[] }>("/stremio/streams", {
-    method: "POST",
-    body: JSON.stringify({ connectionId, type, id }),
-  });
-}
-
-export async function googleDriveGatewayMediaUrl(connectionId: string, fileId: string) {
-  const result = await gatewayJson<{ mediaUrl: string }>("/google-drive/media-capability", {
-    method: "POST",
-    body: JSON.stringify({ connectionId, fileId }),
-  });
-  return result.mediaUrl;
 }
 
 const transcoderCapabilitiesSchema = z.object({
@@ -216,9 +205,13 @@ export type ClientLogEntry = {
 };
 
 /** Fire-and-forget log shipping; failures must never affect the UI. */
-export async function postClientLogs(entries: ClientLogEntry[]) {
+export async function postClientLogs(entries: ClientLogEntry[], options: { keepalive?: boolean } = {}) {
   try {
-    await gatewayJson("/logs", { method: "POST", body: JSON.stringify({ entries }) });
+    await gatewayJson("/logs", {
+      method: "POST",
+      body: JSON.stringify({ entries }),
+      keepalive: options.keepalive,
+    });
   } catch {
     // The gateway may be absent in production builds; logs stay client-side.
   }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenStream XR</string>
+    <string name="starting_xr">Starting Android XR…</string>
+    <string name="choose_video">Choose video</string>
+</resources>

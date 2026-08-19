@@ -4,6 +4,7 @@ import PackageDescription
 let package = Package(
     name: "OpenStreamApple",
     platforms: [
+        .iOS(.v18),
         .macOS(.v15),
         .tvOS(.v18),
         .visionOS(.v2),
@@ -12,10 +13,7 @@ let package = Package(
         .library(name: "OpenStreamApple", targets: ["OpenStreamApple"]),
     ],
     targets: [
-        .target(
-            name: "OpenStreamApple",
-            resources: [.process("Resources")]
-        ),
+        .target(name: "OpenStreamApple"),
         .testTarget(name: "OpenStreamAppleTests", dependencies: ["OpenStreamApple"]),
     ]
 )

@@ -1,19 +1,37 @@
 import { type ClientLogEntry, postClientLogs } from "../integrations/gateway";
 
+/** Entries shipped per gateway request. */
+const LOG_BATCH_SIZE = 50;
+/** Oldest entries are dropped beyond this bound so the queue cannot grow unchecked. */
+const LOG_QUEUE_LIMIT = 200;
+/** Quiet period before a queued batch is shipped. */
+const LOG_FLUSH_DELAY_MS = 1500;
+
 const queue: ClientLogEntry[] = [];
 let flushTimer: number | undefined;
 
 function flush() {
   flushTimer = undefined;
   if (queue.length === 0) return;
-  const entries = queue.splice(0, 50);
+  const entries = queue.splice(0, LOG_BATCH_SIZE);
   void postClientLogs(entries);
+  if (queue.length > 0) flushTimer = window.setTimeout(flush, LOG_FLUSH_DELAY_MS);
+}
+
+/** Best-effort synchronous flush for page teardown; keepalive lets the request outlive the page. */
+function flushRemaining() {
+  if (flushTimer !== undefined) {
+    window.clearTimeout(flushTimer);
+    flushTimer = undefined;
+  }
+  if (queue.length === 0) return;
+  void postClientLogs(queue.splice(0, queue.length), { keepalive: true });
 }
 
 export function logClient(level: ClientLogEntry["level"], message: string, context?: Record<string, string>) {
   queue.push({ level, message: message.slice(0, 2048), context });
-  if (queue.length > 200) queue.splice(0, queue.length - 200);
-  flushTimer ??= window.setTimeout(flush, 1500);
+  if (queue.length > LOG_QUEUE_LIMIT) queue.splice(0, queue.length - LOG_QUEUE_LIMIT);
+  flushTimer ??= window.setTimeout(flush, LOG_FLUSH_DELAY_MS);
 }
 
 /**
@@ -29,5 +47,6 @@ export function installClientLogCapture() {
   window.addEventListener("unhandledrejection", (event) => {
     logClient("error", `Unhandled rejection: ${String(event.reason).slice(0, 600)}`);
   });
+  window.addEventListener("pagehide", flushRemaining);
   logClient("info", `session started on ${navigator.userAgent}`);
 }

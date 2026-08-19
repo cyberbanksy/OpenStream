@@ -1,7 +1,11 @@
 package com.orgista.openstream.media;
 
+import android.media.MediaCodecInfo;
+import android.os.Build;
+
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 public final class DolbyVisionCodecString {
     public record Descriptor(String sampleEntry, int profile, int level) {
@@ -34,6 +38,45 @@ public final class DolbyVisionCodecString {
             }
         }
         return Optional.empty();
+    }
+
+    /** Maps Android decoder profile constants to the profile number carried by dvhe/dvh1/dvav. */
+    public static OptionalInt bitstreamProfile(int platformProfile) {
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPer) {
+            return OptionalInt.of(0);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPen) {
+            return OptionalInt.of(1);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDer) {
+            return OptionalInt.of(2);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDen) {
+            return OptionalInt.of(3);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr) {
+            return OptionalInt.of(4);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn) {
+            return OptionalInt.of(5);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDth) {
+            return OptionalInt.of(6);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtb) {
+            return OptionalInt.of(7);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt) {
+            return OptionalInt.of(8);
+        }
+        if (platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe) {
+            return OptionalInt.of(9);
+        }
+        if (Build.VERSION.SDK_INT >= 30
+                && platformProfile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110) {
+            return OptionalInt.of(10);
+        }
+        return OptionalInt.empty();
     }
 
     private static boolean isDolbyVisionSampleEntry(String sampleEntry) {

@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { chromium } from "playwright-core";
 
 // Live end-to-end smoke test against a running `pnpm dev` server.
@@ -16,7 +17,7 @@ const executablePath =
   process.env.CHROME_FOR_TESTING_PATH ??
   process.env.PUPPETEER_EXECUTABLE_PATH ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const outputDir = fileURLToPath(new URL("../design/qa-automated/", import.meta.url));
+const outputDir = process.env.OPENSTREAM_QA_DIR ?? join(tmpdir(), "openstream-qa");
 
 const browser = await chromium.launch({ executablePath, headless: true });
 const page = await browser.newPage({ viewport: { width: 1715, height: 965 } });

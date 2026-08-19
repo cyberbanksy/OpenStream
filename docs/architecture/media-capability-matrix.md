@@ -14,10 +14,10 @@ Support states:
 | Format | Web | tvOS | visionOS | Android XR / Samsung XR | Meta Quest |
 | --- | --- | --- | --- | --- | --- |
 | SDR | Supported | Supported | Supported | Supported | Supported |
-| HDR10 | Runtime check | Supported platform path | Supported platform path | Runtime display + decoder check | Runtime check |
-| HDR10+ | Runtime check | Asset/runtime check | Asset/runtime check | Runtime display + decoder check | Runtime check |
-| HLG | Runtime check | Supported platform path | Supported platform path | Runtime display + decoder check | Runtime check |
-| Dolby Vision | Runtime check | Asset + decoder check | Asset + decoder check | Runtime display + decoder check | Runtime check |
+| HDR10 | Runtime check | Supported platform path | Supported platform path | SceneCore metadata + runtime check | Blocked pending headset proof |
+| HDR10+ | Runtime check | Asset/runtime check | Asset/runtime check | SceneCore metadata + runtime check | Blocked pending headset proof |
+| HLG | Runtime check | Supported platform path | Supported platform path | SceneCore metadata + runtime check | Blocked pending headset proof |
+| Dolby Vision | Runtime check | Asset + decoder check | Asset + decoder check | SceneCore metadata + runtime check | Blocked pending headset proof |
 
 The Apple inspector parses `dvcC` and `dvvC` records, including profile, level, RPU, enhancement/base-layer flags, and base-layer compatibility identifier. Profile 8 is represented as P8.1 (HDR10-compatible), P8.2 (SDR-compatible), or P8.4 (HLG-compatible) when explicitly signaled. Transfer function is only a fallback when the compatibility identifier is absent or unknown.
 
@@ -29,10 +29,12 @@ Android probes `Display.HdrCapabilities`, advertised HEVC/AV1 Main10 profiles, a
 
 | Projection | WebXR | tvOS | visionOS | Android XR / Samsung XR | Meta Quest |
 | --- | --- | --- | --- | --- | --- |
-| Flat | Supported | Supported | Supported | Supported | Supported |
-| Mono/stereo 180 | Runtime WebXR | Unsupported | Public AVKit path | Runtime WebXR/OpenXR path | Runtime WebXR/OpenXR path |
-| Mono/stereo 360 | Runtime WebXR | Unsupported | Public AVKit path | Runtime WebXR/OpenXR path | Runtime WebXR/OpenXR path |
-| Wide FOV / APMP | Runtime WebXR | Unsupported | Public AVKit experience path | Runtime check | Runtime check |
+| Flat | Supported | Supported | Supported | Supported | OpenXR quad implemented; headset check |
+| Mono/stereo 180 | Runtime WebXR | Unsupported | Public AVKit path | Native SceneCore path, device check | Media3 + KHR equirect layer implemented; headset check |
+| Mono/stereo 360 | Runtime WebXR | Unsupported | Public AVKit path | Native SceneCore path, device check | Media3 + KHR equirect layer implemented; headset check |
+| Fisheye / VR180 | Runtime WebXR | Unsupported | Runtime check | Blocked; native mesh required | GPU conversion + KHR equirect layer; headset check |
+| Cubemap / EAC | Runtime WebXR | Unsupported | Runtime check | Blocked; native mesh required | GPU 3x2 EAC conversion + KHR equirect layer; headset check |
+| Wide FOV / APMP | Runtime WebXR | Unsupported | Public AVKit experience path | Native quad path, device check | Native wide quad; headset check |
 | Apple Immersive Video | Unsupported | Unsupported | Public AVKit experience path | Unsupported | Unsupported |
 
 The browser viewer implements 180, 360, and wide projections with mono, side-by-side, and top-bottom stereo layout. It validates source URLs and supports local file selection. Browser HDR preservation depends on the browser, compositor, headset, and media pipeline; OpenStream therefore does not promise Dolby Vision or HDR10+ output through WebXR.
@@ -58,6 +60,8 @@ Implemented and compile-tested:
 - Apple metadata inspection and profile parsing tests;
 - tvOS 26.2 and visionOS 26.2 package compilation;
 - Android runtime capability probe, unit tests, lint, and debug build;
+- Android XR SceneCore managed-full-space APK, URI autoplay policy, projection/stereo policy tests, lint, and debug build;
+- Meta Quest 0.3.0 arm64 APK, VIEW-intent Media3 autoplay bridge, external-texture copy and fisheye/cubemap conversion shader, OpenXR video swapchain and flat/wide/equirectangular composition layers, decoder probes, lifecycle pause/resume, plus launch/layer/stereo-crop/conversion-output policy tests;
 - WebXR projection math and source-policy tests.
 
 Still requires physical-device and licensed-media verification:
@@ -65,6 +69,6 @@ Still requires physical-device and licensed-media verification:
 - output-mode switching and display-chain behavior;
 - Dolby Vision/HDR10+ decoding for each model and profile;
 - Apple Immersive Video and APMP presentation on Vision Pro;
-- OpenXR compositor integration and stereo validation on Samsung XR and Meta Quest;
+- SceneCore surface playback and stereo validation on Android XR hardware;
+- OpenXR decoded-texture/compositor presentation, fisheye/cubemap orientation and seams, stereo crops, and lifecycle validation on Meta Quest hardware;
 - browser HDR behavior on each headset/browser release.
-

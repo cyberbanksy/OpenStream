@@ -1,0 +1,10 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#080B0C" />
+        </shape>
+    </item>
+    <item android:width="144dp" android:height="144dp" android:gravity="center">
+        <inset android:drawable="@drawable/openstream_cube_mark" android:inset="0dp" />
+    </item>
+</layer-list>
