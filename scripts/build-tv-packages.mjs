@@ -40,16 +40,10 @@ for (const [name, width, height] of [
   ["mm_icon_side_fhd.png", 108, 81],
   ["splash_screen_fhd.png", 1920, 1080],
 ]) {
+  // Pre-sized assets are committed in native/roku/images and arrive via the
+  // recursive rokuSource copy; assert the shipped dimensions like the webOS
+  // path does so a wrong-size Roku asset errors here instead of shipping.
   const destination = path.join(rokuDestination, `images/${name}`);
-  const source = name === "splash_screen_fhd.png"
-    ? path.join(webosStore, "splash-1920x1080.png")
-    : path.join(webosStore, "icon-400.png");
-  await cp(source, destination);
-  if (process.platform === "darwin") {
-    execFileSync("sips", ["-z", String(height), String(width), destination], { stdio: "ignore" });
-  }
-  // Assert the shipped dimensions like the webOS path does. Off darwin there is
-  // no sips resize, so a wrong-size Roku asset errors here instead of shipping.
   const dimensions = await pngDimensions(destination);
   if (dimensions.width !== width || dimensions.height !== height) {
     throw new Error(`${name} must be ${width}x${height}, got ${dimensions.width}x${dimensions.height}`);
